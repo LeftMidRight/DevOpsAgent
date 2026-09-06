@@ -1,0 +1,15 @@
+HighCPUUsage 10 n
+HighMemoryUsage 10 n
+HighDiskUsage 10 n
+ServiceUnavailable 10 n
+SlowResponse 10 n
+OOMKilled 10 n
+OOM 10 n
+ap-guangzhou 10 n
+system-metrics 10 n
+application-logs 10 n
+cpu_usage 10 n
+memory_usage 10 n
+disk_usage 10 n
+response_time 10 n
+slow_query 10 n
