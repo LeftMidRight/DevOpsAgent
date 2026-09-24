@@ -1,12 +1,10 @@
 package org.example.controller;
 
-import org.springframework.http.HttpStatus;
+import org.example.dto.Result;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.Map;
 
 @RestController
 public class DbHealthController {
@@ -18,12 +16,12 @@ public class DbHealthController {
     }
 
     @GetMapping("/db/health")
-    public ResponseEntity<Map<String, String>> health() {
+    public ResponseEntity<Result<String>> health() {
         try {
             jdbcTemplate.queryForObject("SELECT 1", Integer.class);
-            return ResponseEntity.ok(Map.of("message", "ok"));
+            return ResponseEntity.ok(Result.ok("ok"));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+            return ResponseEntity.ok(Result.fail(503, "database unavailable"));
         }
     }
 }

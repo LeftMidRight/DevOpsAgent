@@ -2,11 +2,11 @@ package org.example.controller;
 
 import org.example.config.FileUploadConfig;
 import org.example.dto.FileUploadRes;
+import org.example.dto.Result;
 import org.example.service.VectorIndexService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -32,20 +32,20 @@ public class FileUploadController {
     private VectorIndexService vectorIndexService;
 
     @PostMapping(value = "/api/upload", consumes = "multipart/form-data")
-    public ResponseEntity<?> upload(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<Result<?>> upload(@RequestParam("file") MultipartFile file) {
         if (file.isEmpty()) {
-            return ResponseEntity.badRequest().body("文件不能为空");
+            return ResponseEntity.ok(Result.fail(400, "文件不能为空"));
         }
 
         String originalFilename = file.getOriginalFilename();
         if (originalFilename == null || originalFilename.isEmpty()) {
-            return ResponseEntity.badRequest().body("文件名不能为空");
+            return ResponseEntity.ok(Result.fail(400, "文件名不能为空"));
         }
 
         String fileExtension = getFileExtension(originalFilename);
         if (!isAllowedExtension(fileExtension)) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body("不支持的文件格式，仅支持: " + fileUploadConfig.getAllowedExtensions());
+            return ResponseEntity.ok(Result.fail(400,
+                    "不支持的文件格式，仅支持: " + fileUploadConfig.getAllowedExtensions()));
         }
 
         try {
@@ -78,60 +78,13 @@ public class FileUploadController {
                     file.getSize()
             );
 
-            // 使用统一的API响应格式
-            ApiResponse<FileUploadRes> apiResponse = new ApiResponse<>();
-            apiResponse.setCode(200);
-            apiResponse.setMessage("success");
-            apiResponse.setData(response);
-            
-            return ResponseEntity.ok(apiResponse);
+            return ResponseEntity.ok(Result.ok(response));
 
         } catch (IOException e) {
-            ApiResponse<String> errorResponse = new ApiResponse<>();
-            errorResponse.setCode(500);
-            errorResponse.setMessage("文件上传失败: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(errorResponse);
+            return ResponseEntity.ok(Result.fail("文件上传失败: " + e.getMessage()));
         } catch (Exception e) {
             logger.error("文件上传或索引失败: {}", e.getMessage(), e);
-            ApiResponse<String> errorResponse = new ApiResponse<>();
-            errorResponse.setCode(500);
-            errorResponse.setMessage(e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(errorResponse);
-        }
-    }
-
-    /**
-     * 统一 API 响应格式
-     */
-    public static class ApiResponse<T> {
-        private int code;
-        private String message;
-        private T data;
-
-        public int getCode() {
-            return code;
-        }
-
-        public void setCode(int code) {
-            this.code = code;
-        }
-
-        public String getMessage() {
-            return message;
-        }
-
-        public void setMessage(String message) {
-            this.message = message;
-        }
-
-        public T getData() {
-            return data;
-        }
-
-        public void setData(T data) {
-            this.data = data;
+            return ResponseEntity.ok(Result.fail(e.getMessage()));
         }
     }
 

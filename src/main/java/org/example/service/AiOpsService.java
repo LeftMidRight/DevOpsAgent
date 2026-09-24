@@ -9,21 +9,24 @@ import org.example.agent.tool.DateTimeTools;
 import org.example.agent.tool.InternalDocsTools;
 import org.example.agent.tool.QueryLogsTools;
 import org.example.agent.tool.QueryMetricsTools;
+import org.example.diagnosis.DiagnosisReport;
+import org.example.diagnosis.DiagnosisService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Optional;
 
 /**
  * AI Ops 智能运维服务
- * 负责多 Agent 协作的告警分析流程
+ * @deprecated 已由统一执行服务 {@link org.example.agent.AgentExecutionService} 替代，
+ * 采用单业务 Agent 执行 OPS 诊断任务，不再创建 Supervisor / Planner / Executor 多 Agent。
+ * 保留此类仅供紧急回退参考，不再作为 Spring Bean 装配。
  */
-@Service
+@Deprecated
 public class AiOpsService {
 
     private static final Logger logger = LoggerFactory.getLogger(AiOpsService.class);
@@ -39,6 +42,9 @@ public class AiOpsService {
 
     @Autowired(required = false)  // Mock 模式下才注册
     private QueryLogsTools queryLogsTools;
+
+    @Autowired
+    private DiagnosisService diagnosisService;
 
     /**
      * 执行 AI Ops 告警分析流程
@@ -87,11 +93,24 @@ public class AiOpsService {
         if (plannerFinalOutput.isPresent()) {
             String reportText = plannerFinalOutput.get().getText();
             logger.info("成功提取到 Planner 最终报告，长度: {}", reportText.length());
-            return Optional.of(reportText);
+            String executorText = extractExecutorFeedback(state);
+            DiagnosisReport validated = diagnosisService.fromExecutorFeedback(reportText, executorText);
+            return Optional.of(reportText + "\n\n" + validated.toMarkdown());
         } else {
             logger.warn("未能提取到 Planner 最终报告");
             return Optional.empty();
         }
+    }
+
+    private String extractExecutorFeedback(OverAllState state) {
+        return state.value("executor_feedback")
+                .map(value -> {
+                    if (value instanceof AssistantMessage message) {
+                        return message.getText();
+                    }
+                    return String.valueOf(value);
+                })
+                .orElse("");
     }
 
     /**

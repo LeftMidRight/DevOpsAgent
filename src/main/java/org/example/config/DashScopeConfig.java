@@ -16,7 +16,7 @@ import java.time.Duration;
 @Configuration
 public class DashScopeConfig {
 
-    @Value("${spring.ai.dashscope.chat.options.timeout:180000}")
+    @Value("${volcengine.chat.timeout-ms:180000}")
     private long timeout;
 
     /**

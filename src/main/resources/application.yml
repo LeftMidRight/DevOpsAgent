@@ -17,7 +17,20 @@ retrieval:
   rrf-k: 60
   embedding-dim: 1024
 
-# Spring AI Alibaba DashScope 配置
+# 火山方舟（豆包）模型配置
+volcengine:
+  api-key: ${VOLCENGINE_API_KEY:${ARK_API_KEY:your-api-key-here}}
+  chat:
+    base-url: https://ark.cn-beijing.volces.com/api/coding/v3
+    completions-path: /chat/completions
+    timeout-ms: 180000
+  embedding:
+    base-url: https://ark.cn-beijing.volces.com/api/coding/v3
+    path: /embeddings/multimodal
+    model: doubao-embedding-vision
+    dimensions: 1024
+
+# Spring AI Alibaba DashScope 配置（保留 starter 兼容，主链路已切换至 volcengine）
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/superbiz
@@ -42,10 +55,11 @@ spring:
           max-interval: 10000  # 最大重试间隔10秒
     
     # Spring AI MCP 客户端配置
-    # 如果使用mock数据，请注释这部分内容
+    # 未配置有效 MCP 地址时请保持 enabled: false，否则启动时会阻塞连接占位 URL。
+    # Mock 日志（cls.mock-enabled=true）与真实 MCP 不要同时作为日志来源。
     mcp:
       client:
-        enabled: true
+        enabled: false
         name: tencent-mcp-server
         version: 1.0.0
         request-timeout: 60s
@@ -56,23 +70,41 @@ spring:
               url: https://mcp-api.tencent-cloud.com
               sse-endpoint: /sse/92XXXXXXXXb4  # 完整的SSE端点路径
 
-# 阿里云 DashScope Embedding API 配置
+# 阿里云 DashScope Embedding API 配置（旧版 RagService 仍引用；主索引链路已切换至 volcengine）
 dashscope:
   api:
-    key: ${DASHSCOPE_API_KEY:your-api-key-here}  # 从环境变量读取或使用默认值（用于自定义配置）
+    key: ${DASHSCOPE_API_KEY:your-api-key-here}
   embedding:
-    model: text-embedding-v4  # 阿里云文本向量化模型
+    model: text-embedding-v4
+
+# RAG 配置
+rag:
+  top-k: 3
+  model: "doubao-seed-2.1-turbo"
 
 # 文档分片配置
 document:
   chunk:
-    max-size: 800  # 每个分片最大字符数
-    overlap: 100   # 分片之间的重叠字符数
+    max-size: 800
+    overlap: 100
 
-# RAG 配置
-rag:
-  top-k: 3  # 检索返回的最相似文档数量
-  model: "qwen3-max"  # 大语言模型名称
+# 问答 Agent 上下文管理
+context:
+  # 模型总上下文预算；会从中预留输出、系统提示和工具定义空间。
+  max-context-tokens: 24000
+  reserved-output-tokens: 4000
+  system-and-tools-reserve-tokens: 6000
+  summary-tokens: 2000
+  recent-message-tokens: 8000
+  compression-trigger-tokens: 8000
+
+# Agent 运行轨迹：每个会话一个 append-only JSONL 文件。
+trajectory:
+  enabled: true
+  base-dir: ${TRAJECTORY_DIR:./data/trajectories}
+  max-content-chars: 100000
+  # 开启后每个事件都会 fsync，审计更强但写入延迟更高。
+  force-on-write: false
 
 # Prometheus 配置
 prometheus:
@@ -82,4 +114,26 @@ prometheus:
 
 # CLS 云日志服务配置
 cls:
-  mock-enabled: false  # 是否启用 Mock 模式（用于测试，设为 true 返回与告警关联的模拟日志数据）
+  mock-enabled: true  # 本地开发默认 Mock 日志工具；真实日志需启用 spring.ai.mcp.client 并配置有效 MCP
+
+# 统一业务 Agent 配置
+agent:
+  model: "doubao-seed-2.1-turbo"
+  chat:
+    temperature: 0.7
+    max-tokens: 2000
+    top-p: 0.9
+  ops:
+    temperature: 0.3
+    max-tokens: 8000
+    top-p: 0.9
+  budget:
+    max-model-calls: 12
+    max-tool-calls: 20
+    max-duration-seconds: 240
+    max-tool-result-chars: 6000
+    max-consecutive-tool-failures: 2
+    max-evidence-chars: 4000
+  thinking:
+    enabled: true
+    type: enabled

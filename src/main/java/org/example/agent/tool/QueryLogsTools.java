@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -20,11 +21,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 日志查询工具
- * 用于查询 CLS（云日志服务）的日志信息
- * 支持 Mock 模式，提供与告警关联的模拟日志数据
+ * 日志查询工具（本地 Mock 实现）
+ * 用于查询 CLS（云日志服务）的日志信息，提供与告警关联的模拟日志数据。
+ * 仅在 cls.mock-enabled=true 时注册；真实模式下日志查询能力由 MCP 工具提供，
+ * 避免本地 Mock 与 MCP 真实工具同时加载产生同名冲突。
  */
 @Component
+@ConditionalOnProperty(name = "cls.mock-enabled", havingValue = "true")
 public class QueryLogsTools {
 
     private static final Logger logger = LoggerFactory.getLogger(QueryLogsTools.class);

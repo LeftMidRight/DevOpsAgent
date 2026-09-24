@@ -1,4 +1,4 @@
-# SuperBizAgent
+# DevOpsAgent
 
 > 基于 Spring Boot + AI Agent 的智能问答与运维系统
 
@@ -10,14 +10,15 @@
 集成 PostgreSQL + pgvector 向量数据库和阿里云 DashScope，提供基于检索增强生成的智能问答能力，支持多轮对话和流式输出。
 
 ### 2. AIOps 智能运维
-基于 AI Agent 的自动化运维系统，采用 Planner-Executor-Replanner 架构，实现告警分析、日志查询、智能诊断和报告生成。
+基于统一业务 Agent 的自动化运维：同一套工具与会话完成告警分析、日志查询、智能诊断和报告生成。问答（CHAT）与运维（OPS）共享执行入口，不再运行 Supervisor / Planner / Executor 多 Agent。
 
 ## 🚀 核心特性
 
 - ✅ **RAG 问答**: 向量检索 + 多轮对话 + 流式输出
-- ✅ **AIOps 运维**: 智能诊断 + 多 Agent 协作 + 自动报告
+- ✅ **AIOps 运维**: 单 Agent 诊断 + 证据校验 + 服务端报告渲染
 - ✅ **工具集成**: 文档检索、告警查询、日志分析、时间工具
-- ✅ **会话管理**: 上下文维护、历史管理、自动清理
+- ✅ **会话管理**: PostgreSQL 持久化、滚动摘要、token 预算与失败隔离
+- ✅ **运行轨迹**: append-only JSONL，记录模型消息、工具调用与工具结果
 - ✅ **Web 界面**: 提供测试界面和 RESTful API
 
 
@@ -34,20 +35,18 @@
 ## 📦 核心模块
 
 ```
-SuperBizAgent/
+DevOpsAgent/
 ├── src/main/java/org/example/
 │   ├── controller/
 │   │   └── ChatController.java        # 统一接口控制器 ⭐
-│   ├── service/
-│   │   ├── ChatService.java           # 对话服务 ⭐
-│   │   ├── AiOpsService.java          # AIOps 服务 ⭐
-│   │   ├── RagService.java            # RAG 服务
-│   │   └── Vector*.java               # 向量服务
-│   ├── agent/tool/                    # Agent 工具集
-│   │   ├── DateTimeTools.java         # 时间工具
-│   │   ├── InternalDocsTools.java     # 文档检索
-│   │   ├── QueryMetricsTools.java     # 告警查询
-│   │   └── QueryLogsTools.java        # 日志查询
+│   ├── agent/
+│   │   ├── AgentExecutionService.java # 单 Agent 执行入口
+│   │   ├── UnifiedAgentFactory.java   # 模型、工具与 Hook 装配
+│   │   └── tool/                      # Agent 工具集
+│   ├── context/                        # 上下文预算、组装与滚动摘要
+│   ├── conversation/                   # 会话持久化、事务与并发控制
+│   ├── diagnosis/                      # 证据校验
+│   ├── trajectory/                     # Agent JSONL 运行轨迹
 │   └── config/                        # 配置类
 ├── src/main/resources/
 │   ├── static/                        # Web 界面
@@ -84,12 +83,22 @@ Content-Type: application/json
 ```
 一次性返回完整结果，支持工具调用和多轮对话。
 
+模型上下文由后端数据库中的消息日志、滚动摘要和最近消息统一组装；浏览器本地历史只负责界面展示。设计细节见 [上下文管理设计](docs/context-management-design.md)。
+
 ### 2. AIOps 智能运维接口
 
 ```bash
 POST /api/ai_ops
+Content-Type: application/json
+
+{
+  "Id": "session-123",
+  "Question": "重点检查 payment-service 最近一小时的异常"
+}
 ```
-自动执行告警分析流程，生成运维报告（SSE 流式输出）。
+固定 OPS 模式，走与问答相同的单 Agent 执行入口（SSE）。可省略请求体；未指定 `Id` 时创建新会话。
+
+问答接口可增加可选 `"Mode": "OPS"`，缺省为 `CHAT`。两种模式共用会话、工具与运行轨迹。
 
 ### 3. 会话管理
 

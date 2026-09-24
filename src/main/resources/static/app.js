@@ -1,16 +1,19 @@
-// SuperBizAgent 前端应用
-class SuperBizAgentApp {
+// DevOpsAgent 前端应用
+class DevOpsAgentApp {
     constructor() {
         this.apiBaseUrl = 'http://localhost:9900/api';
         this.currentMode = 'quick'; // 'quick' 或 'stream'
+        this.currentView = 'chat'; // 'chat' 或 'knowledge'
         this.sessionId = this.generateSessionId();
         this.isStreaming = false;
+        this.isKbUploading = false;
         this.currentChatHistory = []; // 当前对话的消息历史
         this.chatHistories = this.loadChatHistories(); // 所有历史对话
         this.isCurrentChatFromHistory = false; // 标记当前对话是否是从历史记录加载的
         
         this.initializeElements();
         this.bindEvents();
+        this.switchView('chat');
         this.updateUI();
         this.initMarkdown();
         this.checkAndSetCentered();
@@ -97,18 +100,24 @@ class SuperBizAgentApp {
         // 侧边栏元素
         this.sidebar = document.querySelector('.sidebar');
         this.newChatBtn = document.getElementById('newChatBtn');
+        this.knowledgeBaseBtn = document.getElementById('knowledgeBaseBtn');
         this.aiOpsSidebarBtn = document.getElementById('aiOpsSidebarBtn');
+        this.chatView = document.getElementById('chatView');
+        this.knowledgeBaseView = document.getElementById('knowledgeBaseView');
         
         // 输入区域元素
         this.messageInput = document.getElementById('messageInput');
         this.sendButton = document.getElementById('sendButton');
-        this.toolsBtn = document.getElementById('toolsBtn');
-        this.toolsMenu = document.getElementById('toolsMenu');
-        this.uploadFileItem = document.getElementById('uploadFileItem');
+        this.kbUploadBtn = document.getElementById('kbUploadBtn');
+        this.kbRefreshBtn = document.getElementById('kbRefreshBtn');
+        this.kbFileInput = document.getElementById('kbFileInput');
+        this.kbUploadStatus = document.getElementById('kbUploadStatus');
+        this.kbDocumentList = document.getElementById('kbDocumentList');
+        this.kbDocumentCount = document.getElementById('kbDocumentCount');
+        this.kbChunkCount = document.getElementById('kbChunkCount');
         this.modeSelectorBtn = document.getElementById('modeSelectorBtn');
         this.modeDropdown = document.getElementById('modeDropdown');
         this.currentModeText = document.getElementById('currentModeText');
-        this.fileInput = document.getElementById('fileInput');
         
         // 聊天区域元素
         this.chatMessages = document.getElementById('chatMessages');
@@ -126,6 +135,10 @@ class SuperBizAgentApp {
         // 新建对话
         if (this.newChatBtn) {
             this.newChatBtn.addEventListener('click', () => this.newChat());
+        }
+
+        if (this.knowledgeBaseBtn) {
+            this.knowledgeBaseBtn.addEventListener('click', () => this.showKnowledgeBase());
         }
         
         // AI Ops按钮
@@ -172,56 +185,178 @@ class SuperBizAgentApp {
                 }
             });
         }
-        
-        // 工具按钮和菜单
-        if (this.toolsBtn) {
-            this.toolsBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.toggleToolsMenu();
-            });
-        }
-        
-        // 工具菜单项点击事件
-        if (this.uploadFileItem) {
-            this.uploadFileItem.addEventListener('click', () => {
-                if (this.fileInput) {
-                    this.fileInput.click();
+
+        if (this.kbUploadBtn) {
+            this.kbUploadBtn.addEventListener('click', () => {
+                if (this.kbFileInput && !this.isKbUploading) {
+                    this.kbFileInput.click();
                 }
-                this.closeToolsMenu();
             });
         }
-        
-        // 点击外部关闭工具菜单
-        document.addEventListener('click', (e) => {
-            if (this.toolsBtn && this.toolsMenu && 
-                !this.toolsBtn.contains(e.target) && 
-                !this.toolsMenu.contains(e.target)) {
-                this.closeToolsMenu();
+
+        if (this.kbFileInput) {
+            this.kbFileInput.addEventListener('change', (e) => this.handleKbFileSelect(e));
+        }
+
+        if (this.kbRefreshBtn) {
+            this.kbRefreshBtn.addEventListener('click', () => this.loadKnowledgeBaseDocuments());
+        }
+    }
+
+    showKnowledgeBase() {
+        this.switchView('knowledge');
+        this.loadKnowledgeBaseDocuments();
+    }
+
+    switchView(view) {
+        this.currentView = view;
+        const isChat = view === 'chat';
+        if (this.chatView) {
+            this.chatView.classList.toggle('hidden', !isChat);
+        }
+        if (this.knowledgeBaseView) {
+            this.knowledgeBaseView.classList.toggle('hidden', isChat);
+        }
+        if (this.newChatBtn) {
+            this.newChatBtn.classList.toggle('active', isChat);
+        }
+        if (this.knowledgeBaseBtn) {
+            this.knowledgeBaseBtn.classList.toggle('active', !isChat);
+        }
+    }
+
+    async loadKnowledgeBaseDocuments() {
+        if (!this.kbDocumentList) {
+            return;
+        }
+        this.kbDocumentList.innerHTML = `
+            <tr class="kb-empty-row">
+                <td colspan="6">
+                    <div class="kb-empty-state">
+                        <p>正在加载文档列表...</p>
+                    </div>
+                </td>
+            </tr>
+        `;
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/knowledge-base/documents`);
+            if (!response.ok) {
+                throw new Error(`HTTP错误: ${response.status}`);
             }
+            const data = await response.json();
+            if (!(data.code === 200 || data.message === 'success')) {
+                throw new Error(data.message || '加载失败');
+            }
+            this.renderKnowledgeBaseDocuments(data.data || []);
+        } catch (error) {
+            console.error('加载知识库失败:', error);
+            this.kbDocumentList.innerHTML = `
+                <tr class="kb-empty-row">
+                    <td colspan="6">
+                        <div class="kb-empty-state">
+                            <p>加载失败</p>
+                            <span>${this.escapeHtml(error.message)}</span>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }
+    }
+
+    renderKnowledgeBaseDocuments(documents) {
+        if (!this.kbDocumentList) {
+            return;
+        }
+        const docs = Array.isArray(documents) ? documents : [];
+        const totalChunks = docs.reduce((sum, doc) => sum + (doc.chunkCount || 0), 0);
+        if (this.kbDocumentCount) {
+            this.kbDocumentCount.textContent = `${docs.length} 个文档`;
+        }
+        if (this.kbChunkCount) {
+            this.kbChunkCount.textContent = `${totalChunks} 个分片`;
+        }
+
+        if (docs.length === 0) {
+            this.kbDocumentList.innerHTML = `
+                <tr class="kb-empty-row">
+                    <td colspan="6">
+                        <div class="kb-empty-state">
+                            <p>还没有导入任何文档</p>
+                            <span>点击「上传文档」添加 TXT / Markdown 文件</span>
+                        </div>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        this.kbDocumentList.innerHTML = '';
+        docs.forEach((doc) => {
+            const row = document.createElement('tr');
+
+            const nameCell = document.createElement('td');
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'kb-file-name';
+            nameSpan.textContent = doc.fileName || '';
+            nameCell.appendChild(nameSpan);
+
+            const extCell = document.createElement('td');
+            const badge = document.createElement('span');
+            badge.className = 'kb-badge';
+            badge.textContent = (doc.extension || '').toUpperCase() || '—';
+            extCell.appendChild(badge);
+
+            const chunkCell = document.createElement('td');
+            chunkCell.textContent = String(doc.chunkCount || 0);
+
+            const sizeCell = document.createElement('td');
+            sizeCell.textContent = doc.fileSizeBytes != null ? this.formatFileSize(doc.fileSizeBytes) : '—';
+
+            const timeCell = document.createElement('td');
+            timeCell.textContent = doc.indexedAt || '—';
+
+            const actionCell = document.createElement('td');
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'kb-delete-btn';
+            deleteBtn.type = 'button';
+            deleteBtn.textContent = '删除';
+            deleteBtn.addEventListener('click', () => this.deleteKnowledgeBaseDocument(doc.fileName));
+            actionCell.appendChild(deleteBtn);
+
+            row.appendChild(nameCell);
+            row.appendChild(extCell);
+            row.appendChild(chunkCell);
+            row.appendChild(sizeCell);
+            row.appendChild(timeCell);
+            row.appendChild(actionCell);
+            this.kbDocumentList.appendChild(row);
         });
-        
-        if (this.fileInput) {
-            this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
-        }
     }
 
-    // 切换工具菜单显示/隐藏
-    toggleToolsMenu() {
-        if (this.toolsMenu && this.toolsBtn) {
-            const wrapper = this.toolsBtn.closest('.tools-btn-wrapper');
-            if (wrapper) {
-                wrapper.classList.toggle('active');
-            }
+    async deleteKnowledgeBaseDocument(fileName) {
+        if (!fileName) {
+            return;
         }
-    }
-
-    // 关闭工具菜单
-    closeToolsMenu() {
-        if (this.toolsMenu && this.toolsBtn) {
-            const wrapper = this.toolsBtn.closest('.tools-btn-wrapper');
-            if (wrapper) {
-                wrapper.classList.remove('active');
+        if (!window.confirm(`确定删除文档「${fileName}」吗？删除后 Agent 将无法再检索该文档。`)) {
+            return;
+        }
+        try {
+            const response = await fetch(
+                `${this.apiBaseUrl}/knowledge-base/documents?fileName=${encodeURIComponent(fileName)}`,
+                { method: 'DELETE' }
+            );
+            if (!response.ok) {
+                throw new Error(`HTTP错误: ${response.status}`);
             }
+            const data = await response.json();
+            if (!(data.code === 200 || data.message === 'success')) {
+                throw new Error(data.message || '删除失败');
+            }
+            this.showKbUploadStatus(`已删除：${fileName}`, 'success');
+            await this.loadKnowledgeBaseDocuments();
+        } catch (error) {
+            console.error('删除知识库文档失败:', error);
+            this.showKbUploadStatus('删除失败: ' + error.message, 'error');
         }
     }
 
@@ -268,6 +403,7 @@ class SuperBizAgentApp {
         
         // 重置模式为快速
         this.currentMode = 'quick';
+        this.switchView('chat');
         this.updateUI();
         
         // 重新设置居中样式（确保对话框居中显示）
@@ -549,6 +685,138 @@ class SuperBizAgentApp {
         return 'session_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
     }
 
+    applySessionMeta(sseMessage) {
+        if (!sseMessage || sseMessage.data == null) {
+            return;
+        }
+        let meta = sseMessage.data;
+        if (typeof meta === 'string') {
+            try {
+                meta = JSON.parse(meta);
+            } catch (e) {
+                return;
+            }
+        }
+        if (meta && meta.sessionId) {
+            this.sessionId = meta.sessionId;
+        }
+    }
+
+    appendSseLines(buffer, chunk, onMessage) {
+        buffer += chunk;
+        const lines = buffer.split('\n');
+        const rest = lines.pop() || '';
+        for (const line of lines) {
+            if (line.trim() === '') {
+                continue;
+            }
+            if (line.startsWith('id:') || line.startsWith('event:')) {
+                continue;
+            }
+            if (!line.startsWith('data:')) {
+                continue;
+            }
+            const rawData = line.substring(5).trim();
+            if (rawData === '[DONE]') {
+                onMessage({ type: 'done', data: null });
+                continue;
+            }
+            try {
+                const parsed = JSON.parse(rawData);
+                if (parsed && typeof parsed.type === 'string') {
+                    onMessage(parsed);
+                    continue;
+                }
+            } catch (e) {
+                // 非 JSON 数据按正文增量兼容
+            }
+            onMessage({ type: 'content', data: rawData });
+        }
+        return rest;
+    }
+
+    renderAssistantMarkdown(element, text) {
+        if (!element) {
+            return;
+        }
+        const messageContent = element.querySelector('.message-content');
+        if (!messageContent) {
+            return;
+        }
+        messageContent.innerHTML = this.renderMarkdown(text || '');
+        this.highlightCodeBlocks(messageContent);
+        this.scrollToBottom();
+    }
+
+    ensureThinkingSection(messageElement) {
+        if (!messageElement) {
+            return null;
+        }
+        const wrapper = messageElement.querySelector('.message-content-wrapper');
+        if (!wrapper) {
+            return null;
+        }
+        let section = wrapper.querySelector('.thinking-section');
+        if (section) {
+            return section;
+        }
+
+        section = document.createElement('div');
+        section.className = 'thinking-section';
+
+        const toggle = document.createElement('div');
+        toggle.className = 'details-toggle';
+        toggle.innerHTML = `
+            <svg class="toggle-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M9 18L15 12L9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="thinking-toggle-label">思考过程</span>
+        `;
+
+        const content = document.createElement('div');
+        content.className = 'details-content';
+
+        const thinkingBody = document.createElement('div');
+        thinkingBody.className = 'thinking-content';
+        content.appendChild(thinkingBody);
+
+        toggle.addEventListener('click', () => {
+            content.classList.toggle('expanded');
+            toggle.classList.toggle('expanded');
+        });
+
+        section.appendChild(toggle);
+        section.appendChild(content);
+
+        const messageContent = wrapper.querySelector('.message-content');
+        if (messageContent) {
+            wrapper.insertBefore(section, messageContent);
+        } else {
+            wrapper.appendChild(section);
+        }
+        return section;
+    }
+
+    updateThinkingSection(messageElement, text, options = {}) {
+        const reasoning = (text || '').trim();
+        if (!reasoning) {
+            return;
+        }
+        const section = this.ensureThinkingSection(messageElement);
+        if (!section) {
+            return;
+        }
+        const thinkingBody = section.querySelector('.thinking-content');
+        const label = section.querySelector('.thinking-toggle-label');
+        if (thinkingBody) {
+            thinkingBody.textContent = reasoning;
+        }
+        if (label) {
+            label.textContent = options.streaming ? '思考过程（生成中…）' : '思考过程';
+        }
+        this.scrollToBottom();
+    }
+
     // 发送消息
     async sendMessage() {
         let message = '';
@@ -628,25 +896,20 @@ class SuperBizAgentApp {
                 loadingMessage.parentNode.removeChild(loadingMessage);
             }
             
-            // 统一响应格式：检查 data.code 或 data.message 判断请求是否成功
+            // 统一响应格式：Result { code, message, data }
             if (data.code === 200 || data.message === 'success') {
-                // data.data 是 ChatResponse 对象
-                const chatResponse = data.data;
-                
-                if (chatResponse && chatResponse.success) {
-                    // 成功：添加实际响应消息（即使 answer 为空也显示）
-                    const answer = chatResponse.answer || '（无回复内容）';
-                    this.addMessage('assistant', answer);
-                } else if (chatResponse && chatResponse.errorMessage) {
-                    // 业务错误
-                    throw new Error(chatResponse.errorMessage);
+                const payload = data.data;
+                if (payload && payload.answer !== undefined) {
+                    const answer = payload.answer || '（无回复内容）';
+                    const reasoning = payload.reasoning || '';
+                    const messageElement = this.addMessage('assistant', answer);
+                    if (reasoning) {
+                        this.updateThinkingSection(messageElement, reasoning);
+                    }
                 } else {
-                    // 兜底：尝试显示任何可用内容
-                    const fallbackAnswer = chatResponse?.answer || chatResponse?.errorMessage || '服务返回了空内容';
-                    this.addMessage('assistant', fallbackAnswer);
+                    this.addMessage('assistant', '服务返回了空内容');
                 }
             } else {
-                // HTTP 成功但业务失败
                 throw new Error(data.message || '请求失败');
             }
         } catch (error) {
@@ -679,119 +942,49 @@ class SuperBizAgentApp {
             // 创建助手消息元素
             const assistantMessageElement = this.addMessage('assistant', '', true);
             let fullResponse = '';
-
-            // 处理流式响应
+            let fullReasoning = '';
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
-            let currentEvent = '';
+            let streamError = null;
+            let finished = false;
 
             try {
-                while (true) {
+                while (!finished) {
                     const { done, value } = await reader.read();
-                    
                     if (done) {
-                        // 流结束，使用统一的处理方法
-                        this.handleStreamComplete(assistantMessageElement, fullResponse);
                         break;
                     }
-
-                    // 解码数据并添加到缓冲区
-                    buffer += decoder.decode(value, { stream: true });
-                    
-                    // 按行分割处理
-                    const lines = buffer.split('\n');
-                    // 保留最后一行（可能不完整）
-                    buffer = lines.pop() || '';
-                    
-                    for (const line of lines) {
-                        if (line.trim() === '') continue;
-                        
-                        console.log('[SSE调试] 收到行:', line);
-                        
-                        // 解析SSE格式
-                        if (line.startsWith('id:')) {
-                            console.log('[SSE调试] 解析到ID');
-                            continue;
-                        } else if (line.startsWith('event:')) {
-                            // 兼容 "event:message" 和 "event: message" 两种格式
-                            currentEvent = line.substring(6).trim();
-                            console.log('[SSE调试] 解析到事件类型:', currentEvent);
-                            // 注意：后端统一使用 "message" 事件名，真正的类型在 data 的 JSON 中
-                            continue;
-                        } else if (line.startsWith('data:')) {
-                            // 兼容 "data:xxx" 和 "data: xxx" 两种格式
-                            const rawData = line.substring(5).trim();
-                            console.log('[SSE调试] 解析到数据, currentEvent:', currentEvent, ', rawData:', rawData);
-                            
-                            // 兼容旧格式 [DONE] 标记
-                            if (rawData === '[DONE]') {
-                                // 流结束标记，将内容转换为Markdown渲染
-                                this.handleStreamComplete(assistantMessageElement, fullResponse);
-                                return;
-                            }
-                            
-                            // 处理 SSE 数据
-                            try {
-                                // 尝试解析为 SseMessage 格式的 JSON
-                                const sseMessage = JSON.parse(rawData);
-                                console.log('[SSE调试] 解析JSON成功:', sseMessage);
-                                
-                                if (sseMessage && typeof sseMessage.type === 'string') {
-                                    if (sseMessage.type === 'content') {
-                                        const content = sseMessage.data || '';
-                                        fullResponse += content;
-                                        console.log('[SSE调试] 添加内容:', content);
-                                        
-                                        // 实时渲染 Markdown
-                                        if (assistantMessageElement) {
-                                            const messageContent = assistantMessageElement.querySelector('.message-content');
-                                            messageContent.innerHTML = this.renderMarkdown(fullResponse);
-                                            // 高亮代码块
-                                            this.highlightCodeBlocks(messageContent);
-                                            this.scrollToBottom();
-                                        }
-                                    } else if (sseMessage.type === 'done') {
-                                        console.log('[SSE调试] 收到done标记，流结束');
-                                        this.handleStreamComplete(assistantMessageElement, fullResponse);
-                                        return;
-                                    } else if (sseMessage.type === 'error') {
-                                        console.error('[SSE调试] 收到错误:', sseMessage.data);
-                                        if (assistantMessageElement) {
-                                            const messageContent = assistantMessageElement.querySelector('.message-content');
-                                            messageContent.innerHTML = this.renderMarkdown('错误: ' + (sseMessage.data || '未知错误'));
-                                        }
-                                        return;
-                                    }
-                                } else {
-                                    // 不是标准 SseMessage 格式，尝试兼容处理
-                                    console.log('[SSE调试] 非标准格式，尝试兼容处理');
-                                    fullResponse += rawData;
-                                    if (assistantMessageElement) {
-                                        const messageContent = assistantMessageElement.querySelector('.message-content');
-                                        messageContent.innerHTML = this.renderMarkdown(fullResponse);
-                                        this.highlightCodeBlocks(messageContent);
-                                        this.scrollToBottom();
-                                    }
-                                }
-                            } catch (e) {
-                                // JSON 解析失败，尝试兼容旧格式
-                                console.log('[SSE调试] JSON解析失败，使用兼容模式:', e.message);
-                                if (rawData === '') {
-                                    fullResponse += '\n';
-                                } else {
-                                    fullResponse += rawData;
-                                }
-                                
-                                if (assistantMessageElement) {
-                                    const messageContent = assistantMessageElement.querySelector('.message-content');
-                                    messageContent.innerHTML = this.renderMarkdown(fullResponse);
-                                    this.highlightCodeBlocks(messageContent);
-                                    this.scrollToBottom();
-                                }
-                            }
+                    buffer = this.appendSseLines(buffer, decoder.decode(value, { stream: true }), (sseMessage) => {
+                        if (finished) {
+                            return;
                         }
-                    }
+                        if (sseMessage.type === 'content') {
+                            fullResponse += sseMessage.data || '';
+                            this.renderAssistantMarkdown(assistantMessageElement, fullResponse);
+                        } else if (sseMessage.type === 'reasoning') {
+                            fullReasoning += sseMessage.data || '';
+                            this.updateThinkingSection(assistantMessageElement, fullReasoning, { streaming: true });
+                        } else if (sseMessage.type === 'reasoning_final') {
+                            fullReasoning = sseMessage.data || fullReasoning;
+                            this.updateThinkingSection(assistantMessageElement, fullReasoning);
+                        } else if (sseMessage.type === 'final') {
+                            fullResponse = sseMessage.data || '';
+                            this.renderAssistantMarkdown(assistantMessageElement, fullResponse);
+                        } else if (sseMessage.type === 'meta') {
+                            this.applySessionMeta(sseMessage);
+                        } else if (sseMessage.type === 'done') {
+                            finished = true;
+                        } else if (sseMessage.type === 'error') {
+                            streamError = sseMessage.data || '未知错误';
+                            finished = true;
+                        }
+                    });
+                }
+                if (streamError) {
+                    this.renderAssistantMarkdown(assistantMessageElement, '错误: ' + streamError);
+                } else {
+                    this.handleStreamComplete(assistantMessageElement, fullResponse, fullReasoning);
                 }
             } finally {
                 reader.releaseLock();
@@ -943,7 +1136,7 @@ class SuperBizAgentApp {
     }
 
     // 处理流式传输完成
-    handleStreamComplete(assistantMessageElement, fullResponse) {
+    handleStreamComplete(assistantMessageElement, fullResponse, fullReasoning = '') {
         if (assistantMessageElement) {
             assistantMessageElement.classList.remove('streaming');
             const messageContent = assistantMessageElement.querySelector('.message-content');
@@ -951,6 +1144,9 @@ class SuperBizAgentApp {
                 messageContent.innerHTML = this.renderMarkdown(fullResponse);
                 // 高亮代码块
                 this.highlightCodeBlocks(messageContent);
+            }
+            if (fullReasoning) {
+                this.updateThinkingSection(assistantMessageElement, fullReasoning);
             }
         }
         // 保存流式消息到历史记录
@@ -1010,17 +1206,16 @@ class SuperBizAgentApp {
         }, 3000);
     }
 
-    // 处理文件选择
-    handleFileSelect(event) {
+    // 处理知识库文件选择
+    handleKbFileSelect(event) {
         const file = event.target.files[0];
         if (file) {
-            // 验证文件格式
             if (!this.validateFileType(file)) {
-                this.showNotification('只支持上传 TXT 或 Markdown (.md) 格式的文件', 'error');
-                this.fileInput.value = '';
+                this.showKbUploadStatus('只支持 TXT 或 Markdown (.md) 格式', 'error');
+                this.kbFileInput.value = '';
                 return;
             }
-            this.uploadFile(file);
+            this.uploadKnowledgeBaseFile(file);
         }
     }
 
@@ -1031,32 +1226,30 @@ class SuperBizAgentApp {
         return allowedExtensions.some(ext => fileName.endsWith(ext));
     }
 
-    // 上传文件到知识库
-    async uploadFile(file) {
-        // 再次验证文件类型（双重保险）
+    // 上传文件到全局知识库（RAG 索引）
+    async uploadKnowledgeBaseFile(file) {
         if (!this.validateFileType(file)) {
-            this.showNotification('只支持上传 TXT 或 Markdown (.md) 格式的文件', 'error');
+            this.showKbUploadStatus('只支持 TXT 或 Markdown (.md) 格式', 'error');
             return;
         }
 
-        // 验证文件大小（限制为50MB）
         const maxSize = 50 * 1024 * 1024;
         if (file.size > maxSize) {
-            this.showNotification('文件大小不能超过50MB', 'error');
+            this.showKbUploadStatus('文件大小不能超过 50MB', 'error');
             return;
         }
 
-        // 锁定前端并显示上传遮罩层
-        this.isStreaming = true;
-        this.updateUI();
+        this.isKbUploading = true;
+        if (this.kbUploadBtn) {
+            this.kbUploadBtn.disabled = true;
+        }
+        this.showKbUploadStatus(`正在上传并索引：${file.name}`, 'uploading');
         this.showUploadOverlay(true, file.name);
 
         try {
-            // 创建 FormData
             const formData = new FormData();
             formData.append('file', file);
 
-            // 发送上传请求
             const response = await fetch(`${this.apiBaseUrl}/upload`, {
                 method: 'POST',
                 body: formData
@@ -1069,24 +1262,45 @@ class SuperBizAgentApp {
             const data = await response.json();
 
             if ((data.code === 200 || data.message === 'success') && data.data) {
-                // 在聊天界面显示上传成功消息
-                const successMessage = `${file.name} 上传到知识库成功`;
-                this.addMessage('assistant', successMessage, false, true);
+                this.showKbUploadStatus(`${file.name} 已加入知识库`, 'success');
+                if (this.currentView === 'knowledge') {
+                    await this.loadKnowledgeBaseDocuments();
+                }
             } else {
                 throw new Error(data.message || '上传失败');
             }
         } catch (error) {
-            console.error('文件上传失败:', error);
-            this.showNotification('文件上传失败: ' + error.message, 'error');
+            console.error('知识库上传失败:', error);
+            this.showKbUploadStatus('上传失败: ' + error.message, 'error');
         } finally {
-            // 清空文件输入
-            if (this.fileInput) {
-                this.fileInput.value = '';
+            if (this.kbFileInput) {
+                this.kbFileInput.value = '';
             }
-            // 解锁前端
-            this.isStreaming = false;
+            this.isKbUploading = false;
+            if (this.kbUploadBtn) {
+                this.kbUploadBtn.disabled = false;
+            }
             this.showUploadOverlay(false);
-            this.updateUI();
+        }
+    }
+
+    showKbUploadStatus(message, type) {
+        if (!this.kbUploadStatus) {
+            return;
+        }
+        if (!message) {
+            this.kbUploadStatus.className = 'upload-status kb-page-status';
+            this.kbUploadStatus.textContent = '';
+            return;
+        }
+        this.kbUploadStatus.className = 'upload-status kb-page-status';
+        if (type) {
+            this.kbUploadStatus.classList.add(type);
+        }
+        if (type === 'uploading') {
+            this.kbUploadStatus.innerHTML = `<span class="upload-spinner"></span><span>${this.escapeHtml(message)}</span>`;
+        } else {
+            this.kbUploadStatus.textContent = message;
         }
     }
 
@@ -1106,7 +1320,10 @@ class SuperBizAgentApp {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                }
+                },
+                body: JSON.stringify({
+                    Id: this.sessionId
+                })
             });
 
             if (!response.ok) {
@@ -1114,119 +1331,60 @@ class SuperBizAgentApp {
             }
 
             let fullResponse = '';
-
-            // 处理 SSE 流式响应
+            let fullReasoning = '';
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
-            let currentEvent = 'message'; // 默认事件类型为 message
+            let finished = false;
 
             try {
-                while (true) {
+                while (!finished) {
                     const { done, value } = await reader.read();
-                    
                     if (done) {
-                        // 流结束，更新最终内容
-                        if (fullResponse) {
-                            console.log('AI Ops 流结束，更新最终内容，长度:', fullResponse.length);
-                            this.updateAIOpsMessage(loadingMessageElement, fullResponse, []);
-                        }
                         break;
                     }
-
-                    // 解码数据并添加到缓冲区
-                    buffer += decoder.decode(value, { stream: true });
-                    
-                    // 按行分割处理
-                    const lines = buffer.split('\n');
-                    // 保留最后一行（可能不完整）
-                    buffer = lines.pop() || '';
-                    
-                    for (const line of lines) {
-                        if (line.trim() === '') continue;
-                        
-                        console.log('[AI Ops SSE] 收到行:', line);
-                        
-                        // 解析 SSE 格式
-                        if (line.startsWith('id:')) {
-                            continue;
-                        } else if (line.startsWith('event:')) {
-                            currentEvent = line.substring(6).trim();
-                            console.log('[AI Ops SSE] 事件类型:', currentEvent);
-                            continue;
-                        } else if (line.startsWith('data:')) {
-                            const rawData = line.substring(5).trim();
-                            console.log('[AI Ops SSE] 数据:', rawData, ', currentEvent:', currentEvent);
-                            
-                            // 解析可能包含多个JSON对象的数据
-                            const processJsonMessages = (data) => {
-                                const jsonPattern = /\{"type"\s*:\s*"[^"]+"\s*,\s*"data"\s*:\s*(?:"[^"]*"|null)\}/g;
-                                const matches = data.match(jsonPattern);
-                                
-                                if (matches && matches.length > 0) {
-                                    console.log('[AI Ops SSE] 匹配到', matches.length, '个JSON对象');
-                                    for (const jsonStr of matches) {
-                                        try {
-                                            const sseMessage = JSON.parse(jsonStr);
-                                            if (sseMessage.type === 'content') {
-                                                fullResponse += sseMessage.data || '';
-                                            } else if (sseMessage.type === 'done') {
-                                                console.log('AI Ops 流完成，最终内容长度:', fullResponse.length);
-                                                this.updateAIOpsMessage(loadingMessageElement, fullResponse, []);
-                                                return true;
-                                            } else if (sseMessage.type === 'error') {
-                                                throw new Error(sseMessage.data || '智能运维分析失败');
-                                            }
-                                        } catch (e) {
-                                            if (e.message.includes('智能运维')) throw e;
-                                            console.log('[AI Ops SSE] 单个JSON解析失败:', jsonStr);
-                                        }
-                                    }
-                                    if (loadingMessageElement) {
-                                        this.updateAIOpsStreamContent(loadingMessageElement, fullResponse);
-                                    }
-                                    return false;
-                                }
-                                return null;
-                            };
-                            
-                            const result = processJsonMessages(rawData);
-                            if (result === true) {
-                                return; // 流结束
-                            } else if (result === null) {
-                                // 没有匹配到多个JSON，尝试单个JSON解析
-                                try {
-                                    const sseMessage = JSON.parse(rawData);
-                                    if (sseMessage && sseMessage.type) {
-                                        if (sseMessage.type === 'content') {
-                                            fullResponse += sseMessage.data || '';
-                                            if (loadingMessageElement) {
-                                                this.updateAIOpsStreamContent(loadingMessageElement, fullResponse);
-                                            }
-                                        } else if (sseMessage.type === 'done') {
-                                            console.log('AI Ops 流完成，最终内容长度:', fullResponse.length);
-                                            this.updateAIOpsMessage(loadingMessageElement, fullResponse, []);
-                                            return;
-                                        } else if (sseMessage.type === 'error') {
-                                            throw new Error(sseMessage.data || '智能运维分析失败');
-                                        }
-                                    } else {
-                                        fullResponse += rawData;
-                                        if (loadingMessageElement) {
-                                            this.updateAIOpsStreamContent(loadingMessageElement, fullResponse);
-                                        }
-                                    }
-                                } catch (e) {
-                                    if (e.message.includes('智能运维')) throw e;
-                                    // 非 JSON 格式，直接追加原始数据
-                                    fullResponse += rawData;
-                                    if (loadingMessageElement) {
-                                        this.updateAIOpsStreamContent(loadingMessageElement, fullResponse);
-                                    }
+                    buffer = this.appendSseLines(buffer, decoder.decode(value, { stream: true }), (sseMessage) => {
+                        if (finished) {
+                            return;
+                        }
+                        if (sseMessage.type === 'progress') {
+                            if (loadingMessageElement) {
+                                const textSpan = loadingMessageElement.querySelector('.loading-message-content span');
+                                if (textSpan && sseMessage.data) {
+                                    textSpan.textContent = sseMessage.data;
                                 }
                             }
+                        } else if (sseMessage.type === 'meta') {
+                            this.applySessionMeta(sseMessage);
+                        } else if (sseMessage.type === 'reasoning') {
+                            fullReasoning += sseMessage.data || '';
+                            if (loadingMessageElement) {
+                                this.updateThinkingSection(loadingMessageElement, fullReasoning, { streaming: true });
+                            }
+                        } else if (sseMessage.type === 'reasoning_final') {
+                            fullReasoning = sseMessage.data || fullReasoning;
+                            if (loadingMessageElement) {
+                                this.updateThinkingSection(loadingMessageElement, fullReasoning);
+                            }
+                        } else if (sseMessage.type === 'final') {
+                            fullResponse = sseMessage.data || '';
+                            if (loadingMessageElement) {
+                                this.updateAIOpsStreamContent(loadingMessageElement, fullResponse);
+                            }
+                        } else if (sseMessage.type === 'content') {
+                            fullResponse += sseMessage.data || '';
+                            if (loadingMessageElement) {
+                                this.updateAIOpsStreamContent(loadingMessageElement, fullResponse);
+                            }
+                        } else if (sseMessage.type === 'done') {
+                            finished = true;
+                        } else if (sseMessage.type === 'error') {
+                            throw new Error(sseMessage.data || '智能运维分析失败');
                         }
-                    }
+                    });
+                }
+                if (fullResponse) {
+                    this.updateAIOpsMessage(loadingMessageElement, fullResponse, [], fullReasoning);
                 }
             } finally {
                 reader.releaseLock();
@@ -1258,7 +1416,7 @@ class SuperBizAgentApp {
     }
 
     // 更新智能运维消息（带折叠详情）
-    updateAIOpsMessage(messageElement, response, details) {
+    updateAIOpsMessage(messageElement, response, details, reasoning = '') {
         console.log('updateAIOpsMessage 被调用');
         console.log('messageElement:', messageElement);
         console.log('response:', response);
@@ -1296,6 +1454,10 @@ class SuperBizAgentApp {
         const loadingIcon = messageContent.querySelector('.loading-spinner-icon');
         if (loadingIcon) {
             loadingIcon.remove();
+        }
+
+        if (reasoning) {
+            this.updateThinkingSection(messageElement, reasoning);
         }
 
         // 详情部分（可折叠）- 先显示
@@ -1446,9 +1608,6 @@ class SuperBizAgentApp {
             return;
         }
 
-        // 新建对话
-        this.newChat();
-        
         // 添加"分析中..."的消息（带旋转动画）
         const loadingMessage = this.addLoadingMessage('分析中...');
         this.currentAIOpsMessage = loadingMessage; // 保存消息引用用于后续更新
@@ -1503,8 +1662,10 @@ class SuperBizAgentApp {
                 // 更新文字为上传中
                 const loadingText = this.loadingOverlay.querySelector('.loading-text');
                 const loadingSubtext = this.loadingOverlay.querySelector('.loading-subtext');
-                if (loadingText) loadingText.textContent = '正在上传文件...';
-                if (loadingSubtext) loadingSubtext.textContent = fileName ? `上传: ${fileName}` : '请稍候';
+                if (loadingText) loadingText.textContent = '正在写入知识库...';
+                if (loadingSubtext) loadingSubtext.textContent = fileName
+                    ? `${fileName}（分片并向量化中，不会加入当前对话）`
+                    : '请稍候';
                 // 防止页面滚动
                 document.body.style.overflow = 'hidden';
             } else {
@@ -1545,5 +1706,5 @@ document.head.appendChild(style);
 
 // 初始化应用
 document.addEventListener('DOMContentLoaded', () => {
-    new SuperBizAgentApp();
+    new DevOpsAgentApp();
 });

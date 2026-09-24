@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>智能OnCall助手</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=20260918b">
     <!-- Markdown 渲染库 -->
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
     <!-- 代码高亮库（可选） -->
@@ -26,7 +26,15 @@
                     </svg>
                     <span>新建对话</span>
                 </button>
-                
+
+                <button class="sidebar-btn" id="knowledgeBaseBtn" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M4 19.5C4 18.837 4.263 18.201 4.732 17.732C5.201 17.263 5.837 17 6.5 17H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M6.5 2H20V22H6.5C5.837 22 5.201 21.737 4.732 21.268C4.263 20.799 4 20.163 4 19.5V4.5C4 3.837 4.263 3.201 4.732 2.732C5.201 2.263 5.837 2 6.5 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>知识库</span>
+                </button>
+
                 <div class="chat-history-section">
                     <div class="history-header">
                         <span>近期对话</span>
@@ -35,13 +43,13 @@
                         <!-- 历史对话列表将在这里动态生成 -->
                     </div>
                 </div>
-                
             </div>
         </aside>
 
         <!-- 主内容区域 -->
         <main class="main-content">
-            <button class="ai-ops-top-btn" id="aiOpsSidebarBtn">
+            <div class="view-panel" id="chatView">
+                <button class="ai-ops-top-btn" id="aiOpsSidebarBtn">
                 <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -61,24 +69,7 @@
                         <div class="input-wrapper">
                             <input type="text" id="messageInput" placeholder="问问智能OnCall助手" maxlength="1000" class="message-input">
                             <div class="input-bottom-bar">
-                                <div class="tools-btn-wrapper">
-                                    <button class="tools-btn" id="toolsBtn" title="更多选项">
-                                        <svg class="tools-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                            <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
-                                            <circle cx="19" cy="12" r="1.5" fill="currentColor"/>
-                                            <circle cx="5" cy="12" r="1.5" fill="currentColor"/>
-                                        </svg>
-                                    </button>
-                                    <div class="tools-menu" id="toolsMenu">
-                                        <div class="tools-menu-item" id="uploadFileItem">
-                                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                            </svg>
-                                            <span>上传文件</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="right-actions">
+                                <div class="right-actions right-actions-full">
                                     <div class="mode-selector-wrapper">
                                         <button class="mode-selector-btn" id="modeSelectorBtn">
                                             <span id="currentModeText">快速</span>
@@ -112,7 +103,62 @@
                             </div>
                         </div>
                     </div>
-                    <input type="file" id="fileInput" accept=".txt,.md,.markdown" style="display: none;">
+                </div>
+            </div>
+            </div>
+
+            <div class="view-panel hidden" id="knowledgeBaseView">
+                <div class="kb-page">
+                    <div class="kb-page-header">
+                        <div>
+                            <h1 class="kb-page-title">知识库</h1>
+                            <p class="kb-page-subtitle">已导入的文档会进入全局向量索引，Agent 在对话中通过检索引用，<strong>不会</strong>直接写入当前会话上下文。</p>
+                        </div>
+                        <div class="kb-toolbar">
+                            <button class="kb-action-btn secondary" id="kbRefreshBtn" type="button">刷新</button>
+                            <button class="kb-action-btn primary" id="kbUploadBtn" type="button">
+                                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M17 8L12 3L7 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M12 3V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span>上传文档</span>
+                            </button>
+                            <input type="file" id="kbFileInput" accept=".txt,.md,.markdown" hidden>
+                        </div>
+                    </div>
+
+                    <div class="upload-status kb-page-status" id="kbUploadStatus" aria-live="polite"></div>
+
+                    <div class="kb-stats" id="kbStatsBar">
+                        <span id="kbDocumentCount">0 个文档</span>
+                        <span id="kbChunkCount">0 个分片</span>
+                    </div>
+
+                    <div class="kb-table-wrapper">
+                        <table class="kb-table">
+                            <thead>
+                                <tr>
+                                    <th>文档名称</th>
+                                    <th>格式</th>
+                                    <th>分片数</th>
+                                    <th>大小</th>
+                                    <th>索引时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="kbDocumentList">
+                                <tr class="kb-empty-row">
+                                    <td colspan="6">
+                                        <div class="kb-empty-state">
+                                            <p>还没有导入任何文档</p>
+                                            <span>点击「上传文档」添加 TXT / Markdown 文件</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </main>
@@ -127,6 +173,6 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=20260918b"></script>
 </body>
 </html>

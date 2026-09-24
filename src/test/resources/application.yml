@@ -1,0 +1,14 @@
+volcengine:
+  api-key: test-volcengine-api-key
+
+spring:
+  ai:
+    dashscope:
+      api-key: test-dashscope-api-key
+  sql:
+    init:
+      mode: never
+
+dashscope:
+  api:
+    key: test-dashscope-api-key

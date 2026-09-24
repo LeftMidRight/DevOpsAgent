@@ -12,8 +12,9 @@
     </parent>
 
     <groupId>org.example</groupId>
-    <artifactId>super-biz-agent</artifactId>
+    <artifactId>devops-agent</artifactId>
     <version>1.0-SNAPSHOT</version>
+    <name>DevOpsAgent</name>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
@@ -73,6 +74,11 @@
         <dependency>
             <groupId>com.alibaba.cloud.ai</groupId>
             <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-openai</artifactId>
         </dependency>
 
         <dependency>

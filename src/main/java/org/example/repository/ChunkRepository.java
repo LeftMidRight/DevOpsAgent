@@ -60,6 +60,25 @@ public class ChunkRepository {
                 this::mapRow);
     }
 
+    public List<DocumentSummaryRow> listDocumentSummaries() {
+        return jdbcTemplate.query(
+                """
+                        SELECT file_name, COUNT(*) AS chunk_count, MIN(created_at) AS indexed_at
+                        FROM document_chunks
+                        GROUP BY file_name
+                        ORDER BY MIN(created_at) DESC
+                        """,
+                (rs, rowNum) -> new DocumentSummaryRow(
+                        rs.getString("file_name"),
+                        rs.getInt("chunk_count"),
+                        rs.getTimestamp("indexed_at").toInstant()));
+    }
+
+    @Transactional
+    public int deleteByFileName(String fileName) {
+        return jdbcTemplate.update("DELETE FROM document_chunks WHERE file_name = ?", fileName);
+    }
+
     public List<ChunkRecord> searchByEmbedding(List<Float> query, int topN) {
         String vectorLiteral = toVectorLiteral(query);
         return jdbcTemplate.query(
