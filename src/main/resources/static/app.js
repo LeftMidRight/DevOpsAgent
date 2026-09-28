@@ -231,7 +231,7 @@ class DevOpsAgentApp {
         }
         this.kbDocumentList.innerHTML = `
             <tr class="kb-empty-row">
-                <td colspan="6">
+                <td colspan="7">
                     <div class="kb-empty-state">
                         <p>正在加载文档列表...</p>
                     </div>
@@ -252,7 +252,7 @@ class DevOpsAgentApp {
             console.error('加载知识库失败:', error);
             this.kbDocumentList.innerHTML = `
                 <tr class="kb-empty-row">
-                    <td colspan="6">
+                    <td colspan="7">
                         <div class="kb-empty-state">
                             <p>加载失败</p>
                             <span>${this.escapeHtml(error.message)}</span>
@@ -279,7 +279,7 @@ class DevOpsAgentApp {
         if (docs.length === 0) {
             this.kbDocumentList.innerHTML = `
                 <tr class="kb-empty-row">
-                    <td colspan="6">
+                    <td colspan="7">
                         <div class="kb-empty-state">
                             <p>还没有导入任何文档</p>
                             <span>点击「上传文档」添加 TXT / Markdown 文件</span>
@@ -289,6 +289,12 @@ class DevOpsAgentApp {
             `;
             return;
         }
+
+        const statusMetaMap = {
+            INDEXED: { label: '已索引', cls: 'ok' },
+            UPLOADED: { label: '待分块', cls: 'pending' },
+            FAILED: { label: '分块失败', cls: 'failed' }
+        };
 
         this.kbDocumentList.innerHTML = '';
         docs.forEach((doc) => {
@@ -312,29 +318,52 @@ class DevOpsAgentApp {
             const sizeCell = document.createElement('td');
             sizeCell.textContent = doc.fileSizeBytes != null ? this.formatFileSize(doc.fileSizeBytes) : '—';
 
+            const statusCell = document.createElement('td');
+            const statusBadge = document.createElement('span');
+            const statusMeta = statusMetaMap[doc.status] || { label: doc.status || '未知', cls: 'pending' };
+            statusBadge.className = `kb-status-badge ${statusMeta.cls}`;
+            statusBadge.textContent = statusMeta.label;
+            if (doc.errorMessage) {
+                statusBadge.title = doc.errorMessage;
+            }
+            statusCell.appendChild(statusBadge);
+
             const timeCell = document.createElement('td');
             timeCell.textContent = doc.indexedAt || '—';
 
             const actionCell = document.createElement('td');
+            const actionWrap = document.createElement('span');
+            actionWrap.className = 'kb-actions';
+
+            const rechunkBtn = document.createElement('button');
+            rechunkBtn.className = 'kb-rechunk-btn';
+            rechunkBtn.type = 'button';
+            rechunkBtn.textContent = '重新分块';
+            rechunkBtn.addEventListener('click', () => this.chunkKnowledgeBaseDocument(doc.id, doc.fileName));
+
             const deleteBtn = document.createElement('button');
             deleteBtn.className = 'kb-delete-btn';
             deleteBtn.type = 'button';
             deleteBtn.textContent = '删除';
-            deleteBtn.addEventListener('click', () => this.deleteKnowledgeBaseDocument(doc.fileName));
-            actionCell.appendChild(deleteBtn);
+            deleteBtn.addEventListener('click', () => this.deleteKnowledgeBaseDocument(doc.id, doc.fileName));
+
+            actionWrap.appendChild(rechunkBtn);
+            actionWrap.appendChild(deleteBtn);
+            actionCell.appendChild(actionWrap);
 
             row.appendChild(nameCell);
             row.appendChild(extCell);
             row.appendChild(chunkCell);
             row.appendChild(sizeCell);
+            row.appendChild(statusCell);
             row.appendChild(timeCell);
             row.appendChild(actionCell);
             this.kbDocumentList.appendChild(row);
         });
     }
 
-    async deleteKnowledgeBaseDocument(fileName) {
-        if (!fileName) {
+    async deleteKnowledgeBaseDocument(id, fileName) {
+        if (!id) {
             return;
         }
         if (!window.confirm(`确定删除文档「${fileName}」吗？删除后 Agent 将无法再检索该文档。`)) {
@@ -342,7 +371,7 @@ class DevOpsAgentApp {
         }
         try {
             const response = await fetch(
-                `${this.apiBaseUrl}/knowledge-base/documents?fileName=${encodeURIComponent(fileName)}`,
+                `${this.apiBaseUrl}/knowledge-base/documents?id=${encodeURIComponent(id)}`,
                 { method: 'DELETE' }
             );
             if (!response.ok) {
@@ -357,6 +386,48 @@ class DevOpsAgentApp {
         } catch (error) {
             console.error('删除知识库文档失败:', error);
             this.showKbUploadStatus('删除失败: ' + error.message, 'error');
+        }
+    }
+
+    // 重新分块（按对象存储中的原文重建向量索引）
+    async chunkKnowledgeBaseDocument(id, fileName) {
+        if (!id) {
+            return;
+        }
+        this.isKbUploading = true;
+        if (this.kbUploadBtn) {
+            this.kbUploadBtn.disabled = true;
+        }
+        this.showKbUploadStatus(`正在重新分块：${fileName}`, 'uploading');
+        this.showUploadOverlay(true, fileName);
+
+        try {
+            const response = await fetch(
+                `${this.apiBaseUrl}/knowledge-base/documents/${encodeURIComponent(id)}/chunk`,
+                { method: 'POST' }
+            );
+            if (!response.ok) {
+                throw new Error(`HTTP错误: ${response.status}`);
+            }
+            const data = await response.json();
+            if (!(data.code === 200 || data.message === 'success') || !data.data) {
+                throw new Error(data.message || '重新分块失败');
+            }
+            if (data.data.status === 'FAILED') {
+                this.showKbUploadStatus(`重新分块失败：${data.data.errorMessage || '未知错误'}`, 'error');
+            } else {
+                this.showKbUploadStatus(`${fileName} 已重新分块`, 'success');
+            }
+            await this.loadKnowledgeBaseDocuments();
+        } catch (error) {
+            console.error('重新分块失败:', error);
+            this.showKbUploadStatus('重新分块失败: ' + error.message, 'error');
+        } finally {
+            this.isKbUploading = false;
+            if (this.kbUploadBtn) {
+                this.kbUploadBtn.disabled = false;
+            }
+            this.showUploadOverlay(false);
         }
     }
 
@@ -1243,7 +1314,7 @@ class DevOpsAgentApp {
         if (this.kbUploadBtn) {
             this.kbUploadBtn.disabled = true;
         }
-        this.showKbUploadStatus(`正在上传并索引：${file.name}`, 'uploading');
+        this.showKbUploadStatus(`正在上传并分块：${file.name}`, 'uploading');
         this.showUploadOverlay(true, file.name);
 
         try {
@@ -1262,7 +1333,12 @@ class DevOpsAgentApp {
             const data = await response.json();
 
             if ((data.code === 200 || data.message === 'success') && data.data) {
-                this.showKbUploadStatus(`${file.name} 已加入知识库`, 'success');
+                if (data.data.status === 'FAILED') {
+                    this.showKbUploadStatus(
+                        `上传完成但分块失败：${data.data.errorMessage || '未知错误'}，可点击「重新分块」重试`, 'error');
+                } else {
+                    this.showKbUploadStatus(`${file.name} 已加入知识库`, 'success');
+                }
                 if (this.currentView === 'knowledge') {
                     await this.loadKnowledgeBaseDocuments();
                 }
@@ -1662,9 +1738,9 @@ class DevOpsAgentApp {
                 // 更新文字为上传中
                 const loadingText = this.loadingOverlay.querySelector('.loading-text');
                 const loadingSubtext = this.loadingOverlay.querySelector('.loading-subtext');
-                if (loadingText) loadingText.textContent = '正在写入知识库...';
+                if (loadingText) loadingText.textContent = '正在上传并分块...';
                 if (loadingSubtext) loadingSubtext.textContent = fileName
-                    ? `${fileName}（分片并向量化中，不会加入当前对话）`
+                    ? `${fileName}（上传至对象存储并分片向量化，请勿关闭页面）`
                     : '请稍候';
                 // 防止页面滚动
                 document.body.style.overflow = 'hidden';

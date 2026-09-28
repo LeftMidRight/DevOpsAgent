@@ -8,6 +8,7 @@ DOCS_DIR = aiops-docs
 HEALTH_CHECK_API = http://localhost:9900/db/health
 DOCKER_COMPOSE_FILE = vector-database.yml
 POSTGRES_CONTAINER = superbiz-postgres
+MINIO_CONTAINER = superbiz-minio
 
 # 颜色输出
 GREEN = \033[0;32m
@@ -23,7 +24,7 @@ help:
 	@echo ""
 	@echo "可用命令："
 	@echo "  $(YELLOW)make init$(NC)    - 🚀 一键初始化（启动Docker → 启动服务 → 上传文档）"
-	@echo "  $(YELLOW)make up$(NC)      - 启动 Docker Compose（PostgreSQL + pgvector）"
+	@echo "  $(YELLOW)make up$(NC)      - 启动 Docker Compose（PostgreSQL + pgvector + MinIO）"
 	@echo "  $(YELLOW)make down$(NC)    - 停止 Docker Compose"
 	@echo "  $(YELLOW)make status$(NC)  - 查看 Docker 容器状态"
 	@echo "  $(YELLOW)make start$(NC)   - 启动 Spring Boot 服务（后台运行）"
@@ -42,7 +43,7 @@ help:
 init:
 	@echo "$(GREEN)🚀 开始一键初始化 SuperBizAgent...$(NC)"
 	@echo ""
-	@echo "$(YELLOW)步骤 1/4: 启动 Docker Compose（PostgreSQL + pgvector）$(NC)"
+	@echo "$(YELLOW)步骤 1/4: 启动 Docker Compose（PostgreSQL + pgvector + MinIO）$(NC)"
 	@$(MAKE) up
 	@echo ""
 	@echo "$(YELLOW)步骤 2/4: 启动 Spring Boot 服务$(NC)"
@@ -51,7 +52,7 @@ init:
 	@echo "$(YELLOW)步骤 3/4: 等待服务就绪$(NC)"
 	@$(MAKE) wait
 	@echo ""
-	@echo "$(YELLOW)步骤 4/4: 上传 AIOps 文档到向量数据库$(NC)"
+	@echo "$(YELLOW)步骤 4/4: 上传 AIOps 文档（存入 MinIO 并自动分块）$(NC)"
 	@$(MAKE) upload
 	@echo ""
 	@echo "$(GREEN)═══════════════════════════════════════════════════════$(NC)"
@@ -61,6 +62,8 @@ init:
 	@echo "$(GREEN)🌐 服务访问地址:$(NC)"
 	@echo "   API 服务: $(SERVER_URL)"
 	@echo "   PostgreSQL: localhost:5432 (db/user/password: superbiz)"
+	@echo "   MinIO API: http://localhost:9000"
+	@echo "   MinIO 控制台: http://localhost:9001 (user/password: superbiz)"
 	@echo ""
 	@echo "$(YELLOW)💡 提示: 服务正在后台运行，查看日志: tail -f server.log$(NC)"
 
@@ -110,7 +113,8 @@ check:
 
 # 上传所有文档
 upload:
-	@echo "$(YELLOW)📤 开始上传 $(DOCS_DIR) 目录下的文档...$(NC)"
+	@echo "$(YELLOW)📤 开始上传 $(DOCS_DIR) 目录下的文档（存入 MinIO 并自动分块）...$(NC)"
+	@echo "$(YELLOW)   提示: 重复上传会产生新文档，请先在知识库页面删除旧行$(NC)"
 	@if [ ! -d "$(DOCS_DIR)" ]; then \
 		echo "$(RED)❌ 目录 $(DOCS_DIR) 不存在！$(NC)"; \
 		exit 1; \
@@ -181,7 +185,6 @@ restart:
 # 清理临时文件
 clean:
 	@echo "$(YELLOW)🧹 清理临时文件...$(NC)"
-	@rm -rf uploads/*.tmp
 	@rm -f server.pid server.log
 	@echo "$(GREEN)✅ 清理完成$(NC)"
 
@@ -205,35 +208,30 @@ test-upload:
 		echo "$(RED)测试文件不存在$(NC)"; \
 	fi
 
-# 启动 Docker Compose（智能检测，避免重复启动）
+# 启动 Docker Compose（PostgreSQL + MinIO；up -d 幂等）
 up:
-	@echo "$(YELLOW)🐳 检查 Docker 容器状态...$(NC)"
+	@echo "$(YELLOW)🐳 启动 Docker Compose（PostgreSQL + MinIO）...$(NC)"
 	@if [ ! -f "$(DOCKER_COMPOSE_FILE)" ]; then \
 		echo "$(RED)❌ Docker Compose 文件不存在: $(DOCKER_COMPOSE_FILE)$(NC)"; \
 		exit 1; \
 	fi
-	@if docker ps --format '{{.Names}}' | grep -q "^$(POSTGRES_CONTAINER)$$"; then \
-		echo "$(GREEN)✅ PostgreSQL 容器已经在运行中$(NC)"; \
-		echo "$(YELLOW)📋 当前运行的容器:$(NC)"; \
-		docker ps --filter "name=$(POSTGRES_CONTAINER)" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"; \
-	else \
-		echo "$(YELLOW)🚀 启动 Docker Compose...$(NC)"; \
-		docker-compose -f $(DOCKER_COMPOSE_FILE) up -d; \
+	@docker-compose -f $(DOCKER_COMPOSE_FILE) up -d
+	@echo ""
+	@echo "$(YELLOW)⏳ 等待容器启动...$(NC)"
+	@sleep 5
+	@if docker ps --format '{{.Names}}' | grep -q "^$(POSTGRES_CONTAINER)$$" && docker ps --format '{{.Names}}' | grep -q "^$(MINIO_CONTAINER)$$"; then \
+		echo "$(GREEN)✅ Docker Compose 启动成功！$(NC)"; \
 		echo ""; \
-		echo "$(YELLOW)⏳ 等待容器启动...$(NC)"; \
-		sleep 5; \
-		if docker ps --format '{{.Names}}' | grep -q "^$(POSTGRES_CONTAINER)$$"; then \
-			echo "$(GREEN)✅ Docker Compose 启动成功！$(NC)"; \
-			echo ""; \
-			echo "$(GREEN)📋 运行中的容器:$(NC)"; \
-			docker ps --filter "name=$(POSTGRES_CONTAINER)" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"; \
-			echo ""; \
-			echo "$(GREEN)🌐 服务访问地址:$(NC)"; \
-			echo "   PostgreSQL: localhost:5432 (db/user/password: superbiz)"; \
-		else \
-			echo "$(RED)❌ 容器启动失败，请检查日志: docker-compose -f $(DOCKER_COMPOSE_FILE) logs$(NC)"; \
-			exit 1; \
-		fi; \
+		echo "$(GREEN)📋 运行中的容器:$(NC)"; \
+		docker ps --filter "name=superbiz-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"; \
+		echo ""; \
+		echo "$(GREEN)🌐 服务访问地址:$(NC)"; \
+		echo "   PostgreSQL: localhost:5432 (db/user/password: superbiz)"; \
+		echo "   MinIO API: http://localhost:9000"; \
+		echo "   MinIO 控制台: http://localhost:9001 (user/password: superbiz)"; \
+	else \
+		echo "$(RED)❌ 容器启动失败，请检查日志: docker-compose -f $(DOCKER_COMPOSE_FILE) logs$(NC)"; \
+		exit 1; \
 	fi
 
 # 停止 Docker Compose
@@ -254,13 +252,13 @@ down:
 status:
 	@echo "$(YELLOW)📊 Docker 容器状态:$(NC)"
 	@echo ""
-	@if docker ps -a --format '{{.Names}}' | grep -q "^$(POSTGRES_CONTAINER)$$"; then \
-		docker ps -a --filter "name=$(POSTGRES_CONTAINER)" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"; \
+	@if docker ps -a --format '{{.Names}}' | grep -q "^superbiz-"; then \
+		docker ps -a --filter "name=superbiz-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"; \
 		echo ""; \
-		running=$$(docker ps --filter "name=$(POSTGRES_CONTAINER)" --format '{{.Names}}' | wc -l | tr -d ' '); \
-		total=$$(docker ps -a --filter "name=$(POSTGRES_CONTAINER)" --format '{{.Names}}' | wc -l | tr -d ' '); \
+		running=$$(docker ps --filter "name=superbiz-" --format '{{.Names}}' | wc -l | tr -d ' '); \
+		total=$$(docker ps -a --filter "name=superbiz-" --format '{{.Names}}' | wc -l | tr -d ' '); \
 		echo "$(GREEN)运行中: $$running / $$total$(NC)"; \
 	else \
-		echo "$(YELLOW)⚠️  没有找到 PostgreSQL 相关容器$(NC)"; \
+		echo "$(YELLOW)⚠️  没有找到 superbiz 相关容器$(NC)"; \
 		echo "$(YELLOW)提示: 运行 'make up' 启动容器$(NC)"; \
 	fi

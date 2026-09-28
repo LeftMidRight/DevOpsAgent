@@ -31,6 +31,7 @@
 | Spring AI | - | AI Agent 框架 |
 | DashScope | 2.17.0 | 阿里云 AI 服务 |
 | PostgreSQL + pgvector | 16 | 向量数据库（混合检索） |
+| MinIO | - | 对象存储（文档原文） |
 
 ## 📦 核心模块
 
@@ -107,7 +108,12 @@ Content-Type: application/json
 
 ### 4. 文件管理
 
-- `POST /api/upload` - 上传文件并自动向量化
+文档处理分为两个阶段：**上传**（文件存入 MinIO 对象存储并登记文档元数据）与**分块**（从对象存储读取原文，分片、向量化后写入向量库）。
+
+- `POST /api/upload` - 上传文件（存入 MinIO）并自动触发分块
+- `POST /api/knowledge-base/documents/{id}/chunk` - 重新分块（用于失败重试）
+- `GET /api/knowledge-base/documents` - 文档列表（含分块状态）
+- `DELETE /api/knowledge-base/documents?id={id}` - 删除文档（分片 + 文档行 + 对象存储原文）
 - `GET /db/health` - 数据库健康检查
 
 
@@ -135,6 +141,13 @@ rag:
   top-k: 3
   model: "qwen3-max"
 
+# 文档原文对象存储
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  access-key: ${MINIO_ACCESS_KEY:superbiz}
+  secret-key: ${MINIO_SECRET_KEY:superbiz}
+  bucket: ${MINIO_BUCKET:superbiz-documents}
+
 # 文档分片
 document:
   chunk:
@@ -145,7 +158,10 @@ document:
 ### 环境变量
 
 ```bash
-export DASHSCOPE_API_KEY=your-api-key
+export DASHSCOPE_API_KEY=your-api-key  # 或 VOLCENGINE_API_KEY（主链路模型）
+export MINIO_ENDPOINT=http://localhost:9000
+export MINIO_ACCESS_KEY=superbiz
+export MINIO_SECRET_KEY=superbiz
 ```
 
 
@@ -162,7 +178,7 @@ export DASHSCOPE_API_KEY=your-api-key
 
 方法一： 手动启动
 ```bash
-# 1. 启动 PostgreSQL + pgvector
+# 1. 启动 PostgreSQL + pgvector + MinIO
 docker compose -f vector-database.yml up -d
 
 # 2. 启动服务
@@ -171,7 +187,7 @@ mvn spring-boot:run
 
 方法二：一键启动
 ```bash
-make init  # 会自动启动向量数据库并上传运维文档到向量库
+make init  # 会自动启动 PostgreSQL 与 MinIO，并上传运维文档（存入 MinIO 后自动分块）
 ```
 
 
@@ -182,11 +198,22 @@ make init  # 会自动启动向量数据库并上传运维文档到向量库
 http://localhost:9900
 ```
 
+MinIO 控制台：`http://localhost:9001`（superbiz / superbiz）
+
 **命令行**
 ```bash
-# 上传文档
+# 上传文档（存入 MinIO 并自动分块）
 curl -X POST http://localhost:9900/api/upload \
   -F "file=@document.txt"
+
+# 查看文档列表（含分块状态）
+curl http://localhost:9900/api/knowledge-base/documents
+
+# 重新分块（失败重试）
+curl -X POST http://localhost:9900/api/knowledge-base/documents/{id}/chunk
+
+# 删除文档
+curl -X DELETE "http://localhost:9900/api/knowledge-base/documents?id={id}"
 
 # 智能问答
 curl -X POST http://localhost:9900/api/chat \
@@ -196,6 +223,8 @@ curl -X POST http://localhost:9900/api/chat \
 # 健康检查
 curl http://localhost:9900/db/health
 ```
+
+> 上传以文档 ID 为逻辑主键，同名文件不会互相覆盖，重复上传会产生新文档。
 
 
 **版本**: v1.0.0  

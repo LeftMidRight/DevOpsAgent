@@ -33,22 +33,23 @@ public class ChunkRepository {
     }
 
     @Transactional
-    public void replaceFileChunks(String fileName, List<ChunkRecord> rows) {
-        jdbcTemplate.update("DELETE FROM document_chunks WHERE file_name = ?", fileName);
+    public void replaceDocumentChunks(UUID documentId, String fileName, List<ChunkRecord> rows) {
+        jdbcTemplate.update("DELETE FROM document_chunks WHERE document_id = ?", documentId);
         for (ChunkRecord row : rows) {
             jdbcTemplate.update(connection -> {
                 var ps = connection.prepareStatement(
-                        "INSERT INTO document_chunks (id, file_name, title, content, tokens, embedding, chunk_index, metadata) "
-                                + "VALUES (?, ?, ?, ?, ?, ?::vector, ?, ?::jsonb)");
+                        "INSERT INTO document_chunks (id, document_id, file_name, title, content, tokens, embedding, chunk_index, metadata) "
+                                + "VALUES (?, ?, ?, ?, ?, ?, ?::vector, ?, ?::jsonb)");
                 ps.setObject(1, row.id());
-                ps.setString(2, row.fileName());
-                ps.setString(3, row.title());
-                ps.setString(4, row.content());
+                ps.setObject(2, documentId);
+                ps.setString(3, fileName);
+                ps.setString(4, row.title());
+                ps.setString(5, row.content());
                 Array tokenArray = connection.createArrayOf("text", row.tokens().toArray(new String[0]));
-                ps.setArray(5, tokenArray);
-                ps.setString(6, toVectorLiteral(row.embedding()));
-                ps.setInt(7, row.chunkIndex());
-                ps.setString(8, row.metadataJson());
+                ps.setArray(6, tokenArray);
+                ps.setString(7, toVectorLiteral(row.embedding()));
+                ps.setInt(8, row.chunkIndex());
+                ps.setString(9, row.metadataJson());
                 return ps;
             });
         }
@@ -60,23 +61,9 @@ public class ChunkRepository {
                 this::mapRow);
     }
 
-    public List<DocumentSummaryRow> listDocumentSummaries() {
-        return jdbcTemplate.query(
-                """
-                        SELECT file_name, COUNT(*) AS chunk_count, MIN(created_at) AS indexed_at
-                        FROM document_chunks
-                        GROUP BY file_name
-                        ORDER BY MIN(created_at) DESC
-                        """,
-                (rs, rowNum) -> new DocumentSummaryRow(
-                        rs.getString("file_name"),
-                        rs.getInt("chunk_count"),
-                        rs.getTimestamp("indexed_at").toInstant()));
-    }
-
     @Transactional
-    public int deleteByFileName(String fileName) {
-        return jdbcTemplate.update("DELETE FROM document_chunks WHERE file_name = ?", fileName);
+    public int deleteByDocumentId(UUID documentId) {
+        return jdbcTemplate.update("DELETE FROM document_chunks WHERE document_id = ?", documentId);
     }
 
     public List<ChunkRecord> searchByEmbedding(List<Float> query, int topN) {

@@ -1,12 +1,11 @@
 package org.example.controller;
 
 import org.example.config.FileUploadConfig;
-import org.example.dto.FileUploadRes;
+import org.example.dto.KnowledgeDocumentSummary;
 import org.example.dto.Result;
-import org.example.service.VectorIndexService;
+import org.example.service.DocumentUploadService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -14,25 +13,28 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * 文档上传接口：文件存入 MinIO 对象存储并自动触发分块。
+ * 本地磁盘不再保存文件，分块失败时返回 FAILED 状态供重试。
+ */
 @RestController
 public class FileUploadController {
 
     private static final Logger logger = LoggerFactory.getLogger(FileUploadController.class);
 
-    @Autowired
-    private FileUploadConfig fileUploadConfig;
+    private final FileUploadConfig fileUploadConfig;
+    private final DocumentUploadService documentUploadService;
 
-    @Autowired
-    private VectorIndexService vectorIndexService;
+    public FileUploadController(FileUploadConfig fileUploadConfig, DocumentUploadService documentUploadService) {
+        this.fileUploadConfig = fileUploadConfig;
+        this.documentUploadService = documentUploadService;
+    }
 
     @PostMapping(value = "/api/upload", consumes = "multipart/form-data")
-    public ResponseEntity<Result<?>> upload(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<Result<KnowledgeDocumentSummary>> upload(@RequestParam("file") MultipartFile file) {
         if (file.isEmpty()) {
             return ResponseEntity.ok(Result.fail(400, "文件不能为空"));
         }
@@ -49,41 +51,15 @@ public class FileUploadController {
         }
 
         try {
-            String uploadPath = fileUploadConfig.getPath();
-            Path uploadDir = Paths.get(uploadPath).normalize();
-            if (!Files.exists(uploadDir)) {
-                Files.createDirectories(uploadDir);
-            }
-
-            // 使用原始文件名，而不是UUID，以便实现基于文件名的去重
-            Path filePath = uploadDir.resolve(originalFilename).normalize();
-            
-            // 如果文件已存在，先删除旧文件（实现覆盖更新）
-            if (Files.exists(filePath)) {
-                logger.info("文件已存在，将覆盖: {}", filePath);
-                Files.delete(filePath);
-            }
-            
-            Files.copy(file.getInputStream(), filePath);
-
-            logger.info("文件上传成功: {}", filePath);
-
-            logger.info("开始为上传文件创建向量索引: {}", filePath);
-            vectorIndexService.indexSingleFile(filePath.toString());
-            logger.info("向量索引创建成功: {}", filePath);
-
-            FileUploadRes response = new FileUploadRes(
-                    originalFilename,
-                    filePath.toString(),
-                    file.getSize()
-            );
-
-            return ResponseEntity.ok(Result.ok(response));
-
+            KnowledgeDocumentSummary summary = documentUploadService.uploadDocument(
+                    originalFilename, file.getSize(), file.getInputStream());
+            return ResponseEntity.ok(Result.ok(summary));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.ok(Result.fail(400, e.getMessage()));
         } catch (IOException e) {
             return ResponseEntity.ok(Result.fail("文件上传失败: " + e.getMessage()));
         } catch (Exception e) {
-            logger.error("文件上传或索引失败: {}", e.getMessage(), e);
+            logger.error("文件上传或分块失败: {}", e.getMessage(), e);
             return ResponseEntity.ok(Result.fail(e.getMessage()));
         }
     }

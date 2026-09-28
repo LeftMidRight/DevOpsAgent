@@ -8,8 +8,14 @@ server:
 
 file:
   upload:
-    path: ./uploads
     allowed-extensions: txt,md
+
+# MinIO 对象存储：文档原文的唯一存储位置
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  access-key: ${MINIO_ACCESS_KEY:superbiz}
+  secret-key: ${MINIO_SECRET_KEY:superbiz}
+  bucket: ${MINIO_BUCKET:superbiz-documents}
 
 retrieval:
   vector-top-n: 10

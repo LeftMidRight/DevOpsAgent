@@ -2,8 +2,8 @@ package org.example.retrieval;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.repository.ChunkRepository;
+import org.example.service.DocumentUploadService;
 import org.example.service.HybridRetrievalService;
-import org.example.service.VectorIndexService;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -11,8 +11,13 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -25,7 +30,7 @@ class HybridRetrievalEvalIT {
     private HybridRetrievalService hybridRetrievalService;
 
     @Autowired
-    private VectorIndexService vectorIndexService;
+    private DocumentUploadService documentUploadService;
 
     @Autowired
     private ChunkRepository chunkRepository;
@@ -35,12 +40,30 @@ class HybridRetrievalEvalIT {
     @BeforeAll
     void setUp() {
         if (chunkRepository.findAll().isEmpty()) {
-            vectorIndexService.indexDirectory("aiops-docs");
+            uploadAiopDocs();
         }
         try (InputStream in = getClass().getResourceAsStream("/retrieval/gold-set.json")) {
             goldSet = new ObjectMapper().readValue(in, GoldSet.class);
         } catch (Exception e) {
             throw new RuntimeException("Failed to load gold-set.json", e);
+        }
+    }
+
+    private void uploadAiopDocs() {
+        Path docsDir = Paths.get("aiops-docs");
+        try (Stream<Path> files = Files.list(docsDir)) {
+            files.filter(path -> path.getFileName().toString().endsWith(".md"))
+                    .forEach(this::upload);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to upload aiops-docs", e);
+        }
+    }
+
+    private void upload(Path file) {
+        try (InputStream in = Files.newInputStream(file)) {
+            documentUploadService.uploadDocument(file.getFileName().toString(), Files.size(file), in);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to upload " + file, e);
         }
     }
 

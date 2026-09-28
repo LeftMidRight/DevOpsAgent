@@ -285,6 +285,56 @@ body {
     text-transform: uppercase;
 }
 
+.kb-status-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #fef7e0;
+    color: #b06000;
+}
+
+.kb-status-badge.ok {
+    background: #e6f4ea;
+    color: #137333;
+}
+
+.kb-status-badge.pending {
+    background: #fef7e0;
+    color: #b06000;
+}
+
+.kb-status-badge.failed {
+    background: #fce8e6;
+    color: #c5221f;
+}
+
+.kb-actions {
+    display: inline-flex;
+    gap: 4px;
+}
+
+.kb-rechunk-btn {
+    background: none;
+    border: none;
+    color: #1a73e8;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 10px;
+    border-radius: 8px;
+}
+
+.kb-rechunk-btn:hover {
+    background: rgba(26, 115, 232, 0.08);
+}
+
+.kb-rechunk-btn:disabled {
+    color: #9aa0a6;
+    cursor: default;
+}
+
 .kb-delete-btn {
     background: none;
     border: none;
