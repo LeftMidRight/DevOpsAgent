@@ -18,15 +18,12 @@ class TaskModeTest {
         assertEquals(TaskMode.CHAT, TaskMode.parse("chat"));
         assertEquals(TaskMode.CHAT, TaskMode.parse("CHAT"));
         assertEquals(TaskMode.CHAT, TaskMode.parse("Chat"));
-        assertEquals(TaskMode.OPS, TaskMode.parse("ops"));
-        assertEquals(TaskMode.OPS, TaskMode.parse("OPS"));
-        assertEquals(TaskMode.OPS, TaskMode.parse("Ops"));
     }
 
     @Test
     void parse_throwsOnUnknownMode() {
         assertThrows(IllegalArgumentException.class, () -> TaskMode.parse("UNKNOWN"));
-        assertThrows(IllegalArgumentException.class, () -> TaskMode.parse("ADMIN"));
+        assertThrows(IllegalArgumentException.class, () -> TaskMode.parse("OPS"));
     }
 
     @Test
@@ -36,11 +33,5 @@ class TaskModeTest {
         assertNotNull(chatPolicy.systemPrompt());
         assertEquals(0.7, chatPolicy.temperature());
         assertEquals(2000, chatPolicy.maxTokens());
-
-        AgentTaskPolicy opsPolicy = AgentTaskPolicy.of(TaskMode.OPS, props);
-        assertNotNull(opsPolicy.systemPrompt());
-        assertTrue(opsPolicy.systemPrompt().contains("JSON"));
-        assertEquals(0.3, opsPolicy.temperature());
-        assertEquals(8000, opsPolicy.maxTokens());
     }
 }

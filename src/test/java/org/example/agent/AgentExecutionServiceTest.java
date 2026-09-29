@@ -3,7 +3,6 @@ package org.example.agent;
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.alibaba.cloud.ai.graph.agent.hook.Hook;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.example.agent.report.OpsReportService;
 import org.example.context.ContextAssembler;
 import org.example.context.ContextPackage;
 import org.example.context.ContextProperties;
@@ -151,7 +150,6 @@ class AgentExecutionServiceTest {
                 assembler,
                 factory,
                 trajectories,
-                mock(OpsReportService.class),
                 props,
                 new ContextProperties(),
                 new TokenEstimator());

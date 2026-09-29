@@ -2,6 +2,7 @@ package org.example.retrieval;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.repository.ChunkRepository;
+import org.example.service.DocumentChunkingService;
 import org.example.service.DocumentUploadService;
 import org.example.service.HybridRetrievalService;
 import org.junit.jupiter.api.BeforeAll;
@@ -17,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -31,6 +33,9 @@ class HybridRetrievalEvalIT {
 
     @Autowired
     private DocumentUploadService documentUploadService;
+
+    @Autowired
+    private DocumentChunkingService documentChunkingService;
 
     @Autowired
     private ChunkRepository chunkRepository;
@@ -61,7 +66,9 @@ class HybridRetrievalEvalIT {
 
     private void upload(Path file) {
         try (InputStream in = Files.newInputStream(file)) {
-            documentUploadService.uploadDocument(file.getFileName().toString(), Files.size(file), in);
+            var summary = documentUploadService.uploadDocument(
+                    file.getFileName().toString(), Files.size(file), in);
+            documentChunkingService.chunkDocument(UUID.fromString(summary.id()));
         } catch (IOException e) {
             throw new RuntimeException("Failed to upload " + file, e);
         }

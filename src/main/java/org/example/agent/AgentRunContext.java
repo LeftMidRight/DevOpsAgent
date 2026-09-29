@@ -123,9 +123,6 @@ public final class AgentRunContext {
                     BudgetExceededException.Kind.DEADLINE);
         }
         int limit = budget.getMaxModelCalls();
-        if (mode == TaskMode.OPS && !reportPhase) {
-            limit = Math.max(1, limit - 1);
-        }
         int current = modelCalls.get();
         if (current >= limit) {
             throw new BudgetExceededException(

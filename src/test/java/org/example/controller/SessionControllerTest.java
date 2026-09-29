@@ -28,13 +28,13 @@ class SessionControllerTest {
         ClearRequest request = new ClearRequest();
         request.setId("session-to-clear");
 
-        doNothing().when(sessionApplicationService).clearHistory("session-to-clear");
+        doNothing().when(sessionApplicationService).clearHistory(request);
 
         ResponseEntity<Result<String>> response = controller.clearChatHistory(request);
 
         assertNotNull(response.getBody());
         assertEquals(200, response.getBody().getCode());
         assertEquals("会话历史已清空", response.getBody().getData());
-        verify(sessionApplicationService).clearHistory("session-to-clear");
+        verify(sessionApplicationService).clearHistory(request);
     }
 }

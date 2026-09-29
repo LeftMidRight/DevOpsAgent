@@ -101,7 +101,6 @@ class DevOpsAgentApp {
         this.sidebar = document.querySelector('.sidebar');
         this.newChatBtn = document.getElementById('newChatBtn');
         this.knowledgeBaseBtn = document.getElementById('knowledgeBaseBtn');
-        this.aiOpsSidebarBtn = document.getElementById('aiOpsSidebarBtn');
         this.chatView = document.getElementById('chatView');
         this.knowledgeBaseView = document.getElementById('knowledgeBaseView');
         
@@ -139,11 +138,6 @@ class DevOpsAgentApp {
 
         if (this.knowledgeBaseBtn) {
             this.knowledgeBaseBtn.addEventListener('click', () => this.showKnowledgeBase());
-        }
-        
-        // AI Ops按钮
-        if (this.aiOpsSidebarBtn) {
-            this.aiOpsSidebarBtn.addEventListener('click', () => this.triggerAIOps());
         }
         
         // 模式选择下拉菜单
@@ -338,7 +332,7 @@ class DevOpsAgentApp {
             const rechunkBtn = document.createElement('button');
             rechunkBtn.className = 'kb-rechunk-btn';
             rechunkBtn.type = 'button';
-            rechunkBtn.textContent = '重新分块';
+            rechunkBtn.textContent = doc.status === 'INDEXED' ? '重新分块' : '分块';
             rechunkBtn.addEventListener('click', () => this.chunkKnowledgeBaseDocument(doc.id, doc.fileName));
 
             const deleteBtn = document.createElement('button');
@@ -398,8 +392,8 @@ class DevOpsAgentApp {
         if (this.kbUploadBtn) {
             this.kbUploadBtn.disabled = true;
         }
-        this.showKbUploadStatus(`正在重新分块：${fileName}`, 'uploading');
-        this.showUploadOverlay(true, fileName);
+        this.showKbUploadStatus(`正在分块：${fileName}`, 'uploading');
+        this.showUploadOverlay(true, fileName, 'chunk');
 
         try {
             const response = await fetch(
@@ -414,9 +408,9 @@ class DevOpsAgentApp {
                 throw new Error(data.message || '重新分块失败');
             }
             if (data.data.status === 'FAILED') {
-                this.showKbUploadStatus(`重新分块失败：${data.data.errorMessage || '未知错误'}`, 'error');
+                this.showKbUploadStatus(`分块失败：${data.data.errorMessage || '未知错误'}`, 'error');
             } else {
-                this.showKbUploadStatus(`${fileName} 已重新分块`, 'success');
+                this.showKbUploadStatus(`${fileName} 已分块`, 'success');
             }
             await this.loadKnowledgeBaseDocuments();
         } catch (error) {
@@ -1314,14 +1308,14 @@ class DevOpsAgentApp {
         if (this.kbUploadBtn) {
             this.kbUploadBtn.disabled = true;
         }
-        this.showKbUploadStatus(`正在上传并分块：${file.name}`, 'uploading');
+        this.showKbUploadStatus(`正在上传：${file.name}`, 'uploading');
         this.showUploadOverlay(true, file.name);
 
         try {
             const formData = new FormData();
             formData.append('file', file);
 
-            const response = await fetch(`${this.apiBaseUrl}/upload`, {
+            const response = await fetch(`${this.apiBaseUrl}/knowledge-base/documents`, {
                 method: 'POST',
                 body: formData
             });
@@ -1333,12 +1327,7 @@ class DevOpsAgentApp {
             const data = await response.json();
 
             if ((data.code === 200 || data.message === 'success') && data.data) {
-                if (data.data.status === 'FAILED') {
-                    this.showKbUploadStatus(
-                        `上传完成但分块失败：${data.data.errorMessage || '未知错误'}，可点击「重新分块」重试`, 'error');
-                } else {
-                    this.showKbUploadStatus(`${file.name} 已加入知识库`, 'success');
-                }
+                this.showKbUploadStatus(`${file.name} 已上传，点击「分块」后才会进入向量库`, 'success');
                 if (this.currentView === 'knowledge') {
                     await this.loadKnowledgeBaseDocuments();
                 }
@@ -1389,287 +1378,6 @@ class DevOpsAgentApp {
         return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
     }
 
-    // 发送智能运维请求（SSE 流式模式）
-    async sendAIOpsRequest(loadingMessageElement) {
-        try {
-            const response = await fetch(`${this.apiBaseUrl}/ai_ops`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    Id: this.sessionId
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP错误: ${response.status}`);
-            }
-
-            let fullResponse = '';
-            let fullReasoning = '';
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let finished = false;
-
-            try {
-                while (!finished) {
-                    const { done, value } = await reader.read();
-                    if (done) {
-                        break;
-                    }
-                    buffer = this.appendSseLines(buffer, decoder.decode(value, { stream: true }), (sseMessage) => {
-                        if (finished) {
-                            return;
-                        }
-                        if (sseMessage.type === 'progress') {
-                            if (loadingMessageElement) {
-                                const textSpan = loadingMessageElement.querySelector('.loading-message-content span');
-                                if (textSpan && sseMessage.data) {
-                                    textSpan.textContent = sseMessage.data;
-                                }
-                            }
-                        } else if (sseMessage.type === 'meta') {
-                            this.applySessionMeta(sseMessage);
-                        } else if (sseMessage.type === 'reasoning') {
-                            fullReasoning += sseMessage.data || '';
-                            if (loadingMessageElement) {
-                                this.updateThinkingSection(loadingMessageElement, fullReasoning, { streaming: true });
-                            }
-                        } else if (sseMessage.type === 'reasoning_final') {
-                            fullReasoning = sseMessage.data || fullReasoning;
-                            if (loadingMessageElement) {
-                                this.updateThinkingSection(loadingMessageElement, fullReasoning);
-                            }
-                        } else if (sseMessage.type === 'final') {
-                            fullResponse = sseMessage.data || '';
-                            if (loadingMessageElement) {
-                                this.updateAIOpsStreamContent(loadingMessageElement, fullResponse);
-                            }
-                        } else if (sseMessage.type === 'content') {
-                            fullResponse += sseMessage.data || '';
-                            if (loadingMessageElement) {
-                                this.updateAIOpsStreamContent(loadingMessageElement, fullResponse);
-                            }
-                        } else if (sseMessage.type === 'done') {
-                            finished = true;
-                        } else if (sseMessage.type === 'error') {
-                            throw new Error(sseMessage.data || '智能运维分析失败');
-                        }
-                    });
-                }
-                if (fullResponse) {
-                    this.updateAIOpsMessage(loadingMessageElement, fullResponse, [], fullReasoning);
-                }
-            } finally {
-                reader.releaseLock();
-            }
-        } catch (error) {
-            throw error;
-        }
-    }
-
-    // 更新智能运维流式内容（实时显示）
-    updateAIOpsStreamContent(messageElement, content) {
-        if (!messageElement) return;
-        
-        // 添加 aiops-message 类
-        messageElement.classList.add('aiops-message');
-        
-        const messageContentWrapper = messageElement.querySelector('.message-content-wrapper');
-        if (messageContentWrapper) {
-            let messageContent = messageContentWrapper.querySelector('.message-content');
-            if (!messageContent) {
-                messageContent = document.createElement('div');
-                messageContent.className = 'message-content';
-                messageContentWrapper.appendChild(messageContent);
-            }
-            // 流式显示时使用纯文本
-            messageContent.textContent = content;
-            this.scrollToBottom();
-        }
-    }
-
-    // 更新智能运维消息（带折叠详情）
-    updateAIOpsMessage(messageElement, response, details, reasoning = '') {
-        console.log('updateAIOpsMessage 被调用');
-        console.log('messageElement:', messageElement);
-        console.log('response:', response);
-        console.log('response length:', response ? response.length : 0);
-        console.log('details:', details);
-        
-        if (!messageElement) {
-            // 如果没有传入消息元素，则创建新消息
-            console.log('messageElement 为空，创建新消息');
-            return this.addAIOpsMessage(response, details);
-        }
-
-        // 添加aiops-message类
-        messageElement.classList.add('aiops-message');
-
-        // 获取消息内容包装器
-        const messageContentWrapper = messageElement.querySelector('.message-content-wrapper');
-        if (!messageContentWrapper) {
-            console.error('未找到 message-content-wrapper');
-            return;
-        }
-
-        // 清空现有内容（保留消息内容容器）
-        const messageContent = messageContentWrapper.querySelector('.message-content');
-        if (!messageContent) {
-            console.error('未找到 message-content');
-            return;
-        }
-
-        // 移除加载动画相关的类和内容
-        messageContent.classList.remove('loading-message-content');
-        messageContent.textContent = '';
-        
-        // 移除加载图标（如果存在）
-        const loadingIcon = messageContent.querySelector('.loading-spinner-icon');
-        if (loadingIcon) {
-            loadingIcon.remove();
-        }
-
-        if (reasoning) {
-            this.updateThinkingSection(messageElement, reasoning);
-        }
-
-        // 详情部分（可折叠）- 先显示
-        if (details && details.length > 0) {
-            // 检查是否已存在详情容器
-            let detailsContainer = messageElement.querySelector('.aiops-details');
-            if (!detailsContainer) {
-                detailsContainer = document.createElement('div');
-                detailsContainer.className = 'aiops-details';
-                messageContentWrapper.insertBefore(detailsContainer, messageContent);
-            } else {
-                // 清空现有详情
-                detailsContainer.innerHTML = '';
-            }
-
-            const detailsToggle = document.createElement('div');
-            detailsToggle.className = 'details-toggle';
-            detailsToggle.innerHTML = `
-                <svg class="toggle-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M9 18L15 12L9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <span>查看详细步骤 (${details.length}条)</span>
-            `;
-
-            const detailsContent = document.createElement('div');
-            detailsContent.className = 'details-content';
-            
-            details.forEach((detail, index) => {
-                const detailItem = document.createElement('div');
-                detailItem.className = 'detail-item';
-                detailItem.innerHTML = `<strong>步骤 ${index + 1}:</strong> ${this.escapeHtml(detail)}`;
-                detailsContent.appendChild(detailItem);
-            });
-
-            // 点击切换折叠状态
-            detailsToggle.addEventListener('click', () => {
-                detailsContent.classList.toggle('expanded');
-                detailsToggle.classList.toggle('expanded');
-            });
-
-            detailsContainer.appendChild(detailsToggle);
-            detailsContainer.appendChild(detailsContent);
-        }
-
-        // 更新主要响应内容（使用Markdown渲染）
-        console.log('开始渲染 Markdown');
-        const renderedHtml = this.renderMarkdown(response);
-        console.log('Markdown 渲染完成，HTML 长度:', renderedHtml ? renderedHtml.length : 0);
-        messageContent.innerHTML = renderedHtml;
-        console.log('innerHTML 已设置');
-        // 高亮代码块
-        this.highlightCodeBlocks(messageContent);
-        console.log('代码块高亮完成');
-        
-        // 保存到历史记录
-        this.currentChatHistory.push({
-            type: 'assistant',
-            content: response,
-            timestamp: new Date().toISOString()
-        });
-        
-        this.scrollToBottom();
-        return messageElement;
-    }
-
-    // 添加智能运维消息（带折叠详情）- 保留用于兼容性
-    addAIOpsMessage(response, details) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = 'message assistant aiops-message';
-
-        // 添加头像图标
-        const messageAvatar = document.createElement('div');
-        messageAvatar.className = 'message-avatar';
-        messageAvatar.innerHTML = `
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="white"/>
-            </svg>
-        `;
-        messageDiv.appendChild(messageAvatar);
-
-        // 创建消息内容包装器
-        const messageContentWrapper = document.createElement('div');
-        messageContentWrapper.className = 'message-content-wrapper';
-
-        // 详情部分（可折叠）- 先显示
-        if (details && details.length > 0) {
-            const detailsContainer = document.createElement('div');
-            detailsContainer.className = 'aiops-details';
-
-            const detailsToggle = document.createElement('div');
-            detailsToggle.className = 'details-toggle';
-            detailsToggle.innerHTML = `
-                <svg class="toggle-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M9 18L15 12L9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <span>查看详细步骤 (${details.length}条)</span>
-            `;
-
-            const detailsContent = document.createElement('div');
-            detailsContent.className = 'details-content';
-            
-            details.forEach((detail, index) => {
-                const detailItem = document.createElement('div');
-                detailItem.className = 'detail-item';
-                detailItem.innerHTML = `<strong>步骤 ${index + 1}:</strong> ${this.escapeHtml(detail)}`;
-                detailsContent.appendChild(detailItem);
-            });
-
-            // 点击切换折叠状态
-            detailsToggle.addEventListener('click', () => {
-                detailsContent.classList.toggle('expanded');
-                detailsToggle.classList.toggle('expanded');
-            });
-
-            detailsContainer.appendChild(detailsToggle);
-            detailsContainer.appendChild(detailsContent);
-            messageContentWrapper.appendChild(detailsContainer);
-        }
-
-        // 主要响应内容 - 后显示（使用Markdown渲染）
-        const messageContent = document.createElement('div');
-        messageContent.className = 'message-content';
-        messageContent.innerHTML = this.renderMarkdown(response);
-        // 高亮代码块
-        this.highlightCodeBlocks(messageContent);
-        messageContentWrapper.appendChild(messageContent);
-        messageDiv.appendChild(messageContentWrapper);
-        
-        if (this.chatMessages) {
-            this.chatMessages.appendChild(messageDiv);
-            this.scrollToBottom();
-        }
-
-        return messageDiv;
-    }
-
     // HTML转义
     escapeHtml(text) {
         const div = document.createElement('div');
@@ -1678,70 +1386,20 @@ class DevOpsAgentApp {
     }
 
     // 触发智能运维（点击智能运维按钮时直接调用）
-    async triggerAIOps() {
-        if (this.isStreaming) {
-            this.showNotification('请等待当前操作完成', 'warning');
-            return;
-        }
-
-        // 添加"分析中..."的消息（带旋转动画）
-        const loadingMessage = this.addLoadingMessage('分析中...');
-        this.currentAIOpsMessage = loadingMessage; // 保存消息引用用于后续更新
-        
-        // 设置发送状态
-        this.isStreaming = true;
-        this.updateUI();
-
-        try {
-            await this.sendAIOpsRequest(loadingMessage);
-        } catch (error) {
-            console.error('智能运维分析失败:', error);
-            // 更新消息为错误信息
-            if (loadingMessage) {
-                const messageContent = loadingMessage.querySelector('.message-content');
-                if (messageContent) {
-                    messageContent.textContent = '抱歉，智能运维分析时出现错误：' + error.message;
-                }
-            }
-        } finally {
-            this.isStreaming = false;
-            this.currentAIOpsMessage = null;
-            this.updateUI();
-        }
-    }
-
-    // 显示/隐藏加载遮罩层
-    showLoadingOverlay(show) {
-        if (this.loadingOverlay) {
-            if (show) {
-                this.loadingOverlay.style.display = 'flex';
-                // 更新文字为智能运维
-                const loadingText = this.loadingOverlay.querySelector('.loading-text');
-                const loadingSubtext = this.loadingOverlay.querySelector('.loading-subtext');
-                if (loadingText) loadingText.textContent = '智能运维分析中，请稍候...';
-                if (loadingSubtext) loadingSubtext.textContent = '后端正在处理，请耐心等待';
-                // 防止页面滚动
-                document.body.style.overflow = 'hidden';
-            } else {
-                this.loadingOverlay.style.display = 'none';
-                // 恢复页面滚动
-                document.body.style.overflow = '';
-            }
-        }
-    }
-
     // 显示/隐藏上传遮罩层
-    showUploadOverlay(show, fileName = '') {
+    showUploadOverlay(show, fileName = '', action = 'upload') {
         if (this.loadingOverlay) {
             if (show) {
                 this.loadingOverlay.style.display = 'flex';
-                // 更新文字为上传中
                 const loadingText = this.loadingOverlay.querySelector('.loading-text');
                 const loadingSubtext = this.loadingOverlay.querySelector('.loading-subtext');
-                if (loadingText) loadingText.textContent = '正在上传并分块...';
-                if (loadingSubtext) loadingSubtext.textContent = fileName
-                    ? `${fileName}（上传至对象存储并分片向量化，请勿关闭页面）`
-                    : '请稍候';
+                const chunking = action === 'chunk';
+                if (loadingText) loadingText.textContent = chunking ? '正在分块...' : '正在上传...';
+                if (loadingSubtext) {
+                    loadingSubtext.textContent = fileName
+                        ? `${fileName}（${chunking ? '读取原文、分片并向量化' : '写入对象存储'}，请勿关闭页面）`
+                        : '请稍候';
+                }
                 // 防止页面滚动
                 document.body.style.overflow = 'hidden';
             } else {

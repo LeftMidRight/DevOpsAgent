@@ -19,7 +19,6 @@ public class AgentProperties {
     private String model = "doubao-seed-2.1-turbo";
 
     private Chat chat = new Chat();
-    private Ops ops = new Ops();
     private Budget budget = new Budget();
     private Thinking thinking = new Thinking();
 
@@ -37,14 +36,6 @@ public class AgentProperties {
     public static class Chat {
         private double temperature = 0.7;
         private int maxTokens = 2000;
-        private double topP = 0.9;
-    }
-
-    @Getter
-    @Setter
-    public static class Ops {
-        private double temperature = 0.3;
-        private int maxTokens = 8000;
         private double topP = 0.9;
     }
 

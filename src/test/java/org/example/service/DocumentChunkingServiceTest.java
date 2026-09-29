@@ -101,8 +101,14 @@ class DocumentChunkingServiceTest {
         UUID documentId = UUID.randomUUID();
         when(documentRepository.findById(documentId)).thenReturn(Optional.empty());
 
-        assertThrows(IllegalArgumentException.class, () -> chunkingService.chunkDocument(documentId));
+        assertThrows(DocumentNotFoundException.class, () -> chunkingService.chunkDocument(documentId));
         verifyNoInteractions(objectStorageService);
+    }
+
+    @Test
+    void chunkDocument_rejectsInvalidId() {
+        assertThrows(IllegalArgumentException.class, () -> chunkingService.chunkDocument("not-a-uuid"));
+        verifyNoInteractions(documentRepository, objectStorageService);
     }
 
     @Test

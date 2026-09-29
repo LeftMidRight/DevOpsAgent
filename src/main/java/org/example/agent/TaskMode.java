@@ -7,8 +7,7 @@ import java.util.Locale;
  * 不对应不同的 Agent 角色定义。
  */
 public enum TaskMode {
-    CHAT,
-    OPS;
+    CHAT;
 
     /**
      * 大小写归一化解析；null/空白缺省为 CHAT；未知值抛出参数异常。
@@ -17,10 +16,9 @@ public enum TaskMode {
         if (raw == null || raw.isBlank()) {
             return CHAT;
         }
-        return switch (raw.trim().toUpperCase(Locale.ROOT)) {
-            case "CHAT" -> CHAT;
-            case "OPS" -> OPS;
-            default -> throw new IllegalArgumentException("未知的任务模式: " + raw + "，仅支持 CHAT / OPS");
-        };
+        if ("CHAT".equals(raw.trim().toUpperCase(Locale.ROOT))) {
+            return CHAT;
+        }
+        throw new IllegalArgumentException("未知的任务模式: " + raw + "，仅支持 CHAT");
     }
 }

@@ -4,7 +4,9 @@ import org.example.agent.AgentExecutionEvents;
 import org.example.agent.AgentExecutionService;
 import org.example.agent.RunCancellation;
 import org.example.agent.TaskMode;
+import org.example.dto.ChatRequest;
 import org.example.dto.SseMessage;
+import org.example.service.ChatApplicationService;
 import org.example.dto.SseMetaPayload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +17,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.function.Supplier;
 
 /**
  * 将 Agent 执行事件适配为 SSE 传输，Controller 只负责创建 emitter 并委托本类。
@@ -25,13 +28,33 @@ public class AgentSseStreamer {
     private static final Logger logger = LoggerFactory.getLogger(AgentSseStreamer.class);
 
     private final AgentExecutionService agentExecutionService;
+    private final ChatApplicationService chatApplicationService;
     private final TaskExecutor streamingTaskExecutor;
 
     public AgentSseStreamer(
             AgentExecutionService agentExecutionService,
+            ChatApplicationService chatApplicationService,
             @Qualifier("agentStreamingTaskExecutor") TaskExecutor streamingTaskExecutor) {
         this.agentExecutionService = agentExecutionService;
+        this.chatApplicationService = chatApplicationService;
         this.streamingTaskExecutor = streamingTaskExecutor;
+    }
+
+    public SseEmitter startChatStream(ChatRequest request, long timeoutMs) {
+        return startPrepared(timeoutMs, () -> chatApplicationService.prepareChat(request));
+    }
+
+    private SseEmitter startPrepared(long timeoutMs, Supplier<ChatApplicationService.PreparedChat> prepare) {
+        SseEmitter emitter = new SseEmitter(timeoutMs);
+        try {
+            ChatApplicationService.PreparedChat prepared = prepare.get();
+            streamingTaskExecutor.execute(() -> runStream(
+                    emitter, prepared.sessionId(), prepared.question(), prepared.mode()));
+        } catch (IllegalArgumentException e) {
+            logger.warn("流式请求参数无效: {}", e.getMessage());
+            sendAndComplete(emitter, SseMessage.error(e.getMessage()));
+        }
+        return emitter;
     }
 
     public SseEmitter startStream(String requestedId, String question, TaskMode mode, long timeoutMs) {
@@ -58,7 +81,7 @@ public class AgentSseStreamer {
                 Thread.currentThread().interrupt();
             }
             logger.error("流式任务失败 - mode: {}", mode, e);
-            send(emitter, SseMessage.error(failureMessage(mode, e)), cancellation);
+            send(emitter, SseMessage.error(failureMessage(e)), cancellation);
             emitter.completeWithError(e);
         }
     }
@@ -119,8 +142,7 @@ public class AgentSseStreamer {
         return SseEmitter.event().name("message").data(message, MediaType.APPLICATION_JSON);
     }
 
-    private static String failureMessage(TaskMode mode, Exception e) {
-        String prefix = mode == TaskMode.OPS ? "AI Ops 流程失败: " : "对话失败: ";
-        return prefix + e.getMessage();
+    private static String failureMessage(Exception e) {
+        return "对话失败: " + e.getMessage();
     }
 }

@@ -41,9 +41,13 @@ public class KnowledgeBaseService {
         return summaries;
     }
 
+    public void deleteDocument(String documentId) {
+        deleteDocument(DocumentIds.parse(documentId));
+    }
+
     public void deleteDocument(UUID documentId) {
         KnowledgeDocumentRow document = documentRepository.findById(documentId)
-                .orElseThrow(() -> new IllegalArgumentException("文档不存在: " + documentId));
+                .orElseThrow(() -> new DocumentNotFoundException("文档不存在: " + documentId));
         int deletedChunks = chunkRepository.deleteByDocumentId(documentId);
         documentRepository.deleteById(documentId);
         objectStorageService.removeObject(document.objectKey());

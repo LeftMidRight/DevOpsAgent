@@ -50,13 +50,17 @@ public class DocumentChunkingService {
         this.chunkRepository = chunkRepository;
     }
 
+    public KnowledgeDocumentSummary chunkDocument(String documentId) {
+        return chunkDocument(DocumentIds.parse(documentId));
+    }
+
     /**
      * 按对象存储中的当前内容重建该文档的全部分片（重复调用幂等）。
-     * 分块失败时标记 FAILED 并返回失败摘要，不抛出异常；文档不存在时抛出 IllegalArgumentException。
+     * 分块失败时标记 FAILED 并返回失败摘要，不抛出异常；文档不存在时抛出 DocumentNotFoundException。
      */
     public KnowledgeDocumentSummary chunkDocument(UUID documentId) {
         KnowledgeDocumentRow document = documentRepository.findById(documentId)
-                .orElseThrow(() -> new IllegalArgumentException("文档不存在: " + documentId));
+                .orElseThrow(() -> new DocumentNotFoundException("文档不存在: " + documentId));
         try {
             String content = new String(
                     objectStorageService.getObject(document.objectKey()), StandardCharsets.UTF_8);

@@ -5,7 +5,6 @@ import com.alibaba.cloud.ai.graph.NodeOutput;
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.alibaba.cloud.ai.graph.streaming.OutputType;
 import com.alibaba.cloud.ai.graph.streaming.StreamingOutput;
-import org.example.agent.report.OpsReportService;
 import org.example.context.ContextAssembler;
 import org.example.context.ContextPackage;
 import org.example.context.ContextProperties;
@@ -28,9 +27,9 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * 统一执行入口：问答与运维共用同一条生命周期——
+ * 统一执行入口：
  * 加锁 → 建轮次 → 组装上下文 → 单 Agent 执行（含工具循环）→
- * OPS 校验渲染 → 提交持久化 → 轨迹收尾。
+ * 提交持久化 → 轨迹收尾。
  * 成功前发生终止时轮次标为 FAILED，不进入未来上下文。
  */
 @Service
@@ -43,7 +42,6 @@ public class AgentExecutionService {
     private final ContextAssembler contextAssembler;
     private final UnifiedAgentFactory agentFactory;
     private final TrajectoryService trajectoryService;
-    private final OpsReportService opsReportService;
     private final AgentProperties properties;
     private final ContextProperties contextProperties;
     private final TokenEstimator tokenEstimator;
@@ -54,7 +52,6 @@ public class AgentExecutionService {
             ContextAssembler contextAssembler,
             UnifiedAgentFactory agentFactory,
             TrajectoryService trajectoryService,
-            OpsReportService opsReportService,
             AgentProperties properties,
             ContextProperties contextProperties,
             TokenEstimator tokenEstimator) {
@@ -63,7 +60,6 @@ public class AgentExecutionService {
         this.contextAssembler = contextAssembler;
         this.agentFactory = agentFactory;
         this.trajectoryService = trajectoryService;
-        this.opsReportService = opsReportService;
         this.properties = properties;
         this.contextProperties = contextProperties;
         this.tokenEstimator = tokenEstimator;
@@ -128,7 +124,7 @@ public class AgentExecutionService {
                         new BudgetEnforcementHook(runContext, tokenEstimator, messageTokenBudget()));
 
                 ModelReply modelReply = request.streaming()
-                        ? executeStreaming(agent, context.messages(), request.mode(), events, trajectoryRun, runContext)
+                        ? executeStreaming(agent, context.messages(), events, trajectoryRun, runContext)
                         : callAndGuard(agent, context.messages(), runContext);
 
                 runContext.rejectLateResult();
@@ -137,21 +133,13 @@ public class AgentExecutionService {
                 reasoning = modelReply.reasoning();
 
                 String finalAnswer = rawAnswer;
-                if (request.mode() == TaskMode.OPS) {
-                    events.onProgress("正在校验证据并生成诊断报告");
-                    finalAnswer = opsReportService.produceReport(rawAnswer, runContext, chatModel);
-                    runContext.rejectLateResult();
-                }
 
                 return commitSuccess(
                         request, events, conversationId, turn, trajectoryRun, runContext, finalAnswer, reasoning);
             } catch (BudgetExceededException e) {
                 if (e.allowsPartialResult() && !runContext.isTerminated() && !runContext.isDeadlineExceeded()) {
                     logger.warn("预算耗尽，交付部分结果 - runId: {}, reason: {}", trajectoryRun.runId(), e.getMessage());
-                    String partial = request.mode() == TaskMode.OPS
-                            ? opsReportService.produceIncomplete(
-                                    "诊断预算耗尽，停止继续取证：" + e.getMessage(), null, runContext)
-                            : "任务因预算限制未完成：" + e.getMessage();
+                    String partial = "任务因预算限制未完成：" + e.getMessage();
                     return commitSuccess(
                             request, events, conversationId, turn, trajectoryRun, runContext, partial, reasoning);
                 }
@@ -199,12 +187,11 @@ public class AgentExecutionService {
 
     /**
      * 流式执行：展示增量与权威最终答案分离。工具调用前的中间说明
-     * 不会拼入最终持久化答案；OPS 模式不向客户端发送未校验的正文增量。
+     * 不会拼入最终持久化答案。
      */
     private ModelReply executeStreaming(
             ReactAgent agent,
             List<Message> messages,
-            TaskMode mode,
             AgentExecutionEvents events,
             TrajectoryRun trajectoryRun,
             AgentRunContext runContext) throws Exception {
@@ -231,9 +218,7 @@ public class AgentExecutionService {
                 String chunk = modelMessage == null ? null : modelMessage.getText();
                 if (chunk != null && !chunk.isEmpty()) {
                     collector.onStreamingChunk(chunk);
-                    if (mode == TaskMode.CHAT) {
-                        events.onContentDelta(chunk);
-                    }
+                    events.onContentDelta(chunk);
                 }
                 String reasoningChunk = ReasoningContentExtractor.extract(modelMessage);
                 if (reasoningChunk != null) {

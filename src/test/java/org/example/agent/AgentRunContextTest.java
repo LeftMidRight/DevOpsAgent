@@ -47,7 +47,7 @@ class AgentRunContextTest {
 
     private static AgentRunContext newContext() {
         return new AgentRunContext(
-                UUID.randomUUID(), TaskMode.OPS, new AgentProperties.Budget(),
+                UUID.randomUUID(), TaskMode.CHAT, new AgentProperties.Budget(),
                 AgentExecutionEvents.NOOP, Instant.now().plusSeconds(30), new RunCancellation());
     }
 }

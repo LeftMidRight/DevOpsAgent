@@ -3,9 +3,9 @@
 
 # 配置变量
 SERVER_URL = http://localhost:9900
-UPLOAD_API = $(SERVER_URL)/api/upload
+UPLOAD_API = $(SERVER_URL)/api/knowledge-base/documents
 DOCS_DIR = aiops-docs
-HEALTH_CHECK_API = http://localhost:9900/db/health
+HEALTH_CHECK_API = $(SERVER_URL)/
 DOCKER_COMPOSE_FILE = vector-database.yml
 POSTGRES_CONTAINER = superbiz-postgres
 MINIO_CONTAINER = superbiz-minio
@@ -113,7 +113,7 @@ check:
 
 # 上传所有文档
 upload:
-	@echo "$(YELLOW)📤 开始上传 $(DOCS_DIR) 目录下的文档（存入 MinIO 并自动分块）...$(NC)"
+	@echo "$(YELLOW)📤 开始上传 $(DOCS_DIR) 目录下的文档（先存入 MinIO，再单独分块）...$(NC)"
 	@echo "$(YELLOW)   提示: 重复上传会产生新文档，请先在知识库页面删除旧行$(NC)"
 	@if [ ! -d "$(DOCS_DIR)" ]; then \
 		echo "$(RED)❌ 目录 $(DOCS_DIR) 不存在！$(NC)"; \
@@ -132,11 +132,21 @@ upload:
 				-H "Accept: application/json"); \
 			http_code=$$(echo "$$response" | tail -n1); \
 			body=$$(echo "$$response" | sed '$$d'); \
-			if [ "$$http_code" = "200" ]; then \
-				echo "$(GREEN)      ✅ 成功: $$filename$(NC)"; \
-				success=$$((success + 1)); \
+			doc_id=$$(echo "$$body" | jq -r '.data.id // empty'); \
+			if [ "$$http_code" = "200" ] && [ -n "$$doc_id" ]; then \
+				echo "$(GREEN)      ✅ 已上传: $$filename$(NC)"; \
+				echo "$(YELLOW)      分块: $$filename$(NC)"; \
+				chunk_code=$$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+					"$(SERVER_URL)/api/knowledge-base/documents/$$doc_id/chunk"); \
+				if [ "$$chunk_code" = "200" ]; then \
+					echo "$(GREEN)      ✅ 已分块: $$filename$(NC)"; \
+					success=$$((success + 1)); \
+				else \
+					echo "$(RED)      ❌ 分块失败: $$filename (HTTP $$chunk_code)$(NC)"; \
+					failed=$$((failed + 1)); \
+				fi; \
 			else \
-				echo "$(RED)      ❌ 失败: $$filename (HTTP $$http_code)$(NC)"; \
+				echo "$(RED)      ❌ 上传失败: $$filename (HTTP $$http_code)$(NC)"; \
 				echo "$$body" | head -n 3; \
 				failed=$$((failed + 1)); \
 			fi; \

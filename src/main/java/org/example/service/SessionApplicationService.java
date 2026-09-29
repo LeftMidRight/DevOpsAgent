@@ -3,7 +3,10 @@ package org.example.service;
 import org.example.conversation.ConversationExecutionCoordinator;
 import org.example.conversation.ConversationService;
 import org.example.conversation.ConversationState;
+import org.example.dto.ClearRequest;
 import org.example.dto.SessionInfoResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -14,6 +17,8 @@ import java.util.Optional;
 @Service
 public class SessionApplicationService {
 
+    private static final Logger logger = LoggerFactory.getLogger(SessionApplicationService.class);
+
     private final ConversationService conversationService;
     private final ConversationExecutionCoordinator conversationCoordinator;
 
@@ -22,6 +27,14 @@ public class SessionApplicationService {
             ConversationExecutionCoordinator conversationCoordinator) {
         this.conversationService = conversationService;
         this.conversationCoordinator = conversationCoordinator;
+    }
+
+    public void clearHistory(ClearRequest request) throws InterruptedException {
+        if (request == null || request.getId() == null || request.getId().isEmpty()) {
+            throw new IllegalArgumentException("会话ID不能为空");
+        }
+        logger.info("收到清空会话历史请求 - SessionId: {}", request.getId());
+        clearHistory(request.getId());
     }
 
     public void clearHistory(String sessionId) throws InterruptedException {
