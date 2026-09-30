@@ -1,6 +1,7 @@
 package org.example.agent;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import io.micrometer.observation.ObservationRegistry;
 import org.example.context.ContextAssembler;
 import org.example.context.ContextPackage;
@@ -83,7 +84,7 @@ class AgentExecutionServiceTest {
                 Flux.defer(() -> {
                     assertEquals(List.of("FI"), emitted, "first chunk must arrive before the next is produced");
                     return Flux.just(new ChatResponse(List.of(new Generation(AssistantMessage.builder()
-                            .content("NAL").properties(Map.of("reasoningContent", "done")).build()))));
+                            .content("NAL").properties(Map.of("reasoningContent", "think done")).build()))));
                 }),
                 Flux.just(new ChatResponse(List.of(), ChatResponseMetadata.builder()
                         .usage(new DefaultUsage(10, 5, 15)).build()))));
@@ -141,7 +142,8 @@ class AgentExecutionServiceTest {
         ContextAssembler assembler = mock(ContextAssembler.class);
         when(assembler.assemble(anyString(), any(), any())).thenReturn(
                 new ContextPackage(List.of(new UserMessage("check service")), 10, 1, 0));
-        UnifiedAgentFactory factory = new UnifiedAgentFactory(props, null, null, null, null, null, null, ObservationRegistry.NOOP) {
+        UnifiedAgentFactory factory = new UnifiedAgentFactory(props, null, null, null, null, null, null,
+                ObservationRegistry.NOOP, io.micrometer.core.instrument.Metrics.globalRegistry) {
             @Override
             public ChatModel createChatModel(AgentTaskPolicy policy) {
                 return model;
@@ -170,13 +172,12 @@ class AgentExecutionServiceTest {
                         OpenAiChatOptions.builder()
                                 .model("offline-probe")
                                 .toolCallbacks(List.of(new EvidenceCollectingToolCallback(tool, run, "local")))
-                                .internalToolExecutionEnabled(false)
                                 .build());
             }
         };
         TrajectoryProperties trajectoryProps = new TrajectoryProperties();
         trajectoryProps.setEnabled(false);
-        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        ObjectMapper mapper = JsonMapper.builder().findAndAddModules().build();
         TrajectoryService trajectories = new TrajectoryService(
                 new JsonlTrajectoryStore(mapper, trajectoryProps),
                 new TrajectorySanitizer(mapper, trajectoryProps));

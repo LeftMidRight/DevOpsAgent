@@ -1,7 +1,8 @@
 package org.example.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.example.config.VolcengineModelConfig;
 import org.example.config.VolcengineProperties;
 import org.slf4j.Logger;
@@ -27,7 +28,7 @@ public class VectorEmbeddingService {
 
     private final VolcengineProperties properties;
     private final RestClient restClient;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new JsonMapper();
 
     public VectorEmbeddingService(VolcengineProperties properties, RestClient.Builder restClientBuilder) {
         this.properties = properties;

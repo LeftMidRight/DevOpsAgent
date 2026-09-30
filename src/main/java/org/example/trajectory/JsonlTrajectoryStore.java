@@ -1,6 +1,7 @@
 package org.example.trajectory;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -59,7 +60,7 @@ public class JsonlTrajectoryStore {
                 }
             }
             return true;
-        } catch (IOException e) {
+        } catch (IOException | JacksonException e) {
             // Trajectory persistence is observability. A local disk failure must
             // not turn a valid user request into an Agent failure.
             logger.error("追加 Agent 轨迹失败 - RunId: {}, EventType: {}", event.runId(), event.type(), e);

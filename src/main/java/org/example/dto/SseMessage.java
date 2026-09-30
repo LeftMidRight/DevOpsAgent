@@ -1,7 +1,8 @@
 package org.example.dto;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 统一 SSE 流式消息格式。
@@ -9,7 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  */
 public record SseMessage(String type, String data) {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = new JsonMapper();
 
     public static SseMessage content(String data) {
         return new SseMessage("content", data);
@@ -34,7 +35,7 @@ public record SseMessage(String type, String data) {
     public static SseMessage meta(SseMetaPayload payload) {
         try {
             return new SseMessage("meta", MAPPER.writeValueAsString(payload));
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("序列化 SSE meta 失败", e);
         }
     }

@@ -34,7 +34,6 @@ volcengine:
   api-key: ${VOLCENGINE_API_KEY:${ARK_API_KEY:your-api-key-here}}
   chat:
     base-url: https://ark.cn-beijing.volces.com/api/coding/v3
-    completions-path: /chat/completions
     timeout-ms: 180000
   embedding:
     base-url: https://ark.cn-beijing.volces.com/api/coding/v3

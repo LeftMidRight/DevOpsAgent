@@ -27,11 +27,18 @@
 | 技术 | 版本 | 说明 |
 |------|------|------|
 | Java | 17 | 开发语言 |
-| Spring Boot | 3.2.0 | 应用框架 |
-| Spring AI | - | AI Agent 框架 |
+| Spring Boot | 4.0.8 | 应用框架（Jackson 3） |
+| Spring AI | 2.0.1 | 模型调用、工具执行与可观测性 |
 | DashScope | 2.17.0 | 阿里云 AI 服务 |
 | PostgreSQL + pgvector | 16 | 向量数据库（混合检索） |
 | MinIO | - | 对象存储（文档原文） |
+
+### Spring AI 2.0.1 运行说明
+
+- Java 17 可继续使用。聊天客户端使用新的 OpenAI SDK，`volcengine.chat.base-url` 填 API 根路径，例如 `https://ark.cn-beijing.volces.com/api/coding/v3`；客户端自动追加 `/chat/completions`，无需配置 `completions-path`。
+- `/api/chat_stream` 收到模型片段后立即发送内容和推理 SSE；最终持久化答案取最后一次模型回答。SDK 的累计推理字段转换为增量，避免重复显示。
+- 运行轨迹逐次记录模型 token 用量，结束事件保存整轮累计用量。`/actuator/prometheus` 导出模型、工具及应用指标，`/actuator/health` 提供健康检查。
+- `mvn clean test` 包含本地 HTTP 模型兼容性测试和应用启动测试；这些测试使用模拟基础设施，不代表已完成真实豆包、PostgreSQL、MinIO 和 MCP 联调。
 
 ## 📦 核心模块
 

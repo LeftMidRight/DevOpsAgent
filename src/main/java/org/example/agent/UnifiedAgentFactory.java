@@ -1,6 +1,9 @@
 package org.example.agent;
 
 import io.micrometer.observation.ObservationRegistry;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.example.config.VolcengineProperties;
+import org.example.config.VolcengineModelConfig;
 import org.example.agent.tool.DateTimeTools;
 import org.example.agent.tool.InternalDocsTools;
 import org.example.agent.tool.QueryLogsTools;
@@ -10,7 +13,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
@@ -24,6 +26,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.Duration;
 
 /**
  * 构建唯一业务 Agent：装配模型、任务策略提示词、统一工具集与 Hook。
@@ -40,7 +43,8 @@ public class UnifiedAgentFactory {
 
     private final AgentProperties properties;
     private final ObservationRegistry observationRegistry;
-    private final OpenAiApi volcengineOpenAiApi;
+    private final MeterRegistry meterRegistry;
+    private final VolcengineProperties volcengineProperties;
     private final DateTimeTools dateTimeTools;
     private final InternalDocsTools internalDocsTools;
     private final QueryMetricsTools queryMetricsTools;
@@ -49,16 +53,18 @@ public class UnifiedAgentFactory {
 
     public UnifiedAgentFactory(
             AgentProperties properties,
-            OpenAiApi volcengineOpenAiApi,
+            VolcengineProperties volcengineProperties,
             DateTimeTools dateTimeTools,
             InternalDocsTools internalDocsTools,
             QueryMetricsTools queryMetricsTools,
             ObjectProvider<QueryLogsTools> queryLogsTools,
             @Autowired(required = false) @Qualifier("mcpAsyncToolCallbacks") ToolCallbackProvider mcpToolProvider,
-            ObservationRegistry observationRegistry) {
+            ObservationRegistry observationRegistry,
+            MeterRegistry meterRegistry) {
         this.properties = properties;
         this.observationRegistry = observationRegistry;
-        this.volcengineOpenAiApi = volcengineOpenAiApi;
+        this.meterRegistry = meterRegistry;
+        this.volcengineProperties = volcengineProperties;
         this.dateTimeTools = dateTimeTools;
         this.internalDocsTools = internalDocsTools;
         this.queryMetricsTools = queryMetricsTools;
@@ -71,6 +77,9 @@ public class UnifiedAgentFactory {
      */
     public ChatModel createChatModel(AgentTaskPolicy policy) {
         OpenAiChatOptions.Builder optionsBuilder = OpenAiChatOptions.builder()
+                .baseUrl(VolcengineModelConfig.trimTrailingSlash(volcengineProperties.getChat().getBaseUrl()))
+                .apiKey(volcengineProperties.getApiKey())
+                .timeout(Duration.ofMillis(volcengineProperties.getChat().getTimeoutMs()))
                 .model(properties.getModel())
                 .temperature(policy.temperature())
                 .maxTokens(policy.maxTokens())
@@ -80,9 +89,9 @@ public class UnifiedAgentFactory {
             optionsBuilder.extraBody(Map.of("thinking", Map.of("type", properties.getThinking().getType())));
         }
         return OpenAiChatModel.builder()
-                .openAiApi(volcengineOpenAiApi)
                 .observationRegistry(observationRegistry)
-                .defaultOptions(optionsBuilder.build())
+                .meterRegistry(meterRegistry)
+                .options(optionsBuilder.build())
                 .build();
     }
 
@@ -100,8 +109,7 @@ public class UnifiedAgentFactory {
                 .maxTokens(policy.maxTokens())
                 .topP(policy.topP())
                 .streamUsage(true)
-                .toolCallbacks(List.of(wrapped))
-                .internalToolExecutionEnabled(false);
+                .toolCallbacks(List.of(wrapped));
         if (properties.getThinking().isEnabled()) {
             optionsBuilder.extraBody(Map.of("thinking", Map.of("type", properties.getThinking().getType())));
         }

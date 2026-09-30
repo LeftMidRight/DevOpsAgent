@@ -1,7 +1,8 @@
 package org.example.agent.report;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -20,7 +21,7 @@ public class OpsReportParser {
     private static final Set<String> CONTRACT_FIELDS = Set.of(
             "alertSummary", "findings", "unresolvedIssues", "overallAssessment", "riskLevel");
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new JsonMapper();
 
     /**
      * @throws OpsReportParseException 内容中不存在可解析的草稿 JSON
@@ -45,7 +46,7 @@ public class OpsReportParser {
     }
 
     private static boolean hasContractField(JsonNode node) {
-        var names = node.fieldNames();
+        var names = node.propertyNames().iterator();
         while (names.hasNext()) {
             if (CONTRACT_FIELDS.contains(names.next())) {
                 return true;

@@ -1,6 +1,7 @@
 package org.example.agent.tool;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.example.retrieval.RetrievedChunk;
 import org.example.service.HybridRetrievalService;
 import org.slf4j.Logger;
@@ -30,7 +31,7 @@ public class InternalDocsTools {
     @Value("${rag.top-k:3}")
     private int topK = 3; // 默认值
     
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new JsonMapper();
     
     @Autowired
     public InternalDocsTools(HybridRetrievalService hybridRetrievalService) {

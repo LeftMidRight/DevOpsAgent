@@ -23,8 +23,6 @@ public class VolcengineProperties {
     @Setter
     public static class Chat {
         private String baseUrl = "https://ark.cn-beijing.volces.com/api/coding/v3";
-        /** 相对 baseUrl，火山方舟 coding 端点为 /chat/completions（无 /v1 前缀） */
-        private String completionsPath = "/chat/completions";
         private long timeoutMs = 180_000L;
     }
 

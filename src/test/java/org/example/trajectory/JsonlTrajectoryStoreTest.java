@@ -1,7 +1,8 @@
 package org.example.trajectory;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.example.context.ContextPackage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,7 +34,7 @@ class JsonlTrajectoryStoreTest {
 
     @BeforeEach
     void setUp() {
-        objectMapper = new ObjectMapper().findAndRegisterModules();
+        objectMapper = JsonMapper.builder().findAndAddModules().build();
         TrajectoryProperties properties = new TrajectoryProperties();
         properties.setBaseDir(tempDir.toString());
         properties.setMaxContentChars(10_000);

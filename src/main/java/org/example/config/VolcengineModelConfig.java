@@ -1,12 +1,12 @@
 package org.example.config;
 
 import io.micrometer.observation.ObservationRegistry;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.ai.openai.OpenAiChatModel;
-import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.client.RestClient;
+import java.time.Duration;
 
 /**
  * 火山方舟 OpenAI 兼容 Chat API 客户端。
@@ -15,27 +15,19 @@ import org.springframework.web.client.RestClient;
 public class VolcengineModelConfig {
 
     @Bean
-    public OpenAiApi volcengineOpenAiApi(
-            VolcengineProperties properties,
-            RestClient.Builder restClientBuilder) {
-        validateApiKey(properties.getApiKey());
-        return OpenAiApi.builder()
-                .baseUrl(trimTrailingSlash(properties.getChat().getBaseUrl()))
-                .completionsPath(properties.getChat().getCompletionsPath())
-                .apiKey(properties.getApiKey())
-                .restClientBuilder(restClientBuilder)
-                .build();
-    }
-
-    @Bean
     public OpenAiChatModel volcengineChatModel(
-            OpenAiApi volcengineOpenAiApi,
+            VolcengineProperties properties,
             ObservationRegistry observationRegistry,
+            MeterRegistry meterRegistry,
             @Value("${agent.model}") String modelName) {
+        validateApiKey(properties.getApiKey());
         return OpenAiChatModel.builder()
-                .openAiApi(volcengineOpenAiApi)
                 .observationRegistry(observationRegistry)
-                .defaultOptions(org.springframework.ai.openai.OpenAiChatOptions.builder()
+                .meterRegistry(meterRegistry)
+                .options(org.springframework.ai.openai.OpenAiChatOptions.builder()
+                        .baseUrl(trimTrailingSlash(properties.getChat().getBaseUrl()))
+                        .apiKey(properties.getApiKey())
+                        .timeout(Duration.ofMillis(properties.getChat().getTimeoutMs()))
                         .model(modelName)
                         .build())
                 .build();

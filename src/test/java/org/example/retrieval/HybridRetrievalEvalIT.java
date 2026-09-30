@@ -1,6 +1,7 @@
 package org.example.retrieval;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.example.repository.ChunkRepository;
 import org.example.service.DocumentChunkingService;
 import org.example.service.DocumentUploadService;
@@ -48,7 +49,7 @@ class HybridRetrievalEvalIT {
             uploadAiopDocs();
         }
         try (InputStream in = getClass().getResourceAsStream("/retrieval/gold-set.json")) {
-            goldSet = new ObjectMapper().readValue(in, GoldSet.class);
+            goldSet = new JsonMapper().readValue(in, GoldSet.class);
         } catch (Exception e) {
             throw new RuntimeException("Failed to load gold-set.json", e);
         }

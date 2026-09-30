@@ -1,9 +1,10 @@
 package org.example.agent;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.MapperFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.MapperFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.SerializationFeature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,10 +20,10 @@ import java.util.Map;
 public final class RunEvidenceAnalyzer {
 
     private static final Logger logger = LoggerFactory.getLogger(RunEvidenceAnalyzer.class);
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final ObjectMapper CANONICAL = new ObjectMapper()
-            .configure(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY, true)
-            .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
+    private static final ObjectMapper MAPPER = new JsonMapper();
+    private static final ObjectMapper CANONICAL = JsonMapper.builder()
+            .enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
+            .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS).build();
 
     /** 截断后追加的标记，模型与读者都能识别内容不完整 */
     public static final String TRUNCATION_MARK = "\n...[内容已截断，完整结果见证据记录]";
@@ -198,7 +199,7 @@ public final class RunEvidenceAnalyzer {
             return null;
         }
         if (node.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            Iterator<Map.Entry<String, JsonNode>> fields = node.properties().iterator();
             while (fields.hasNext()) {
                 Map.Entry<String, JsonNode> entry = fields.next();
                 for (String name : fieldNames) {
@@ -208,7 +209,7 @@ public final class RunEvidenceAnalyzer {
                     }
                 }
             }
-            fields = node.fields();
+            fields = node.properties().iterator();
             while (fields.hasNext()) {
                 String found = findFirstText(fields.next().getValue(), fieldNames);
                 if (found != null) {

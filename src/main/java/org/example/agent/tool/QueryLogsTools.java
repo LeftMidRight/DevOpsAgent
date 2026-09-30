@@ -1,7 +1,8 @@
 package org.example.agent.tool;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import lombok.Data;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +37,7 @@ public class QueryLogsTools {
     public static final String TOOL_QUERY_LOGS = "queryLogs";
     public static final String TOOL_GET_AVAILABLE_LOG_TOPICS = "getAvailableLogTopics";
     
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new JsonMapper();
     
     @Value("${cls.mock-enabled:false}")
     private boolean mockEnabled;

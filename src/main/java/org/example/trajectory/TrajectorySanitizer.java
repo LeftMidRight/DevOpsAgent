@@ -1,7 +1,7 @@
 package org.example.trajectory;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Array;
@@ -41,7 +41,7 @@ public class TrajectorySanitizer {
         if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
             try {
                 return sanitize(objectMapper.readValue(trimmed, Object.class));
-            } catch (JsonProcessingException ignored) {
+            } catch (JacksonException ignored) {
                 // Some tool protocols use JSON-like strings. Preserve a bounded
                 // representation instead of rejecting the trajectory event.
             }

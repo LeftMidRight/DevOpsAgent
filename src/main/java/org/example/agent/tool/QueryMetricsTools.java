@@ -1,7 +1,8 @@
 package org.example.agent.tool;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import lombok.Data;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -29,7 +30,7 @@ public class QueryMetricsTools {
     /** 工具名常量，用于动态构建提示词 */
     public static final String TOOL_QUERY_PROMETHEUS_ALERTS = "queryPrometheusAlerts";
     
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new JsonMapper();
     
     @Value("${prometheus.base-url}")
     private String prometheusBaseUrl;

@@ -288,6 +288,10 @@ public class AgentExecutionService {
                 }
                 String reasoningChunk = ReasoningContentExtractor.extract(message);
                 if (reasoningChunk != null) {
+                    // Spring AI 2 的 SDK 返回累计推理内容；转为 SSE 增量。
+                    if (reasoningChunk.startsWith(reasoning.toString())) {
+                        reasoningChunk = reasoningChunk.substring(reasoning.length());
+                    }
                     reasoning.append(reasoningChunk);
                     collector.onReasoningChunk(reasoningChunk);
                     events.onReasoningDelta(reasoningChunk);
