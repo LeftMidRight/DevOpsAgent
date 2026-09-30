@@ -50,6 +50,8 @@ public class AgentProperties {
         private int maxModelCalls = 12;
         /** 单轮最大工具调用次数；一次模型回复发出多个调用逐个计数 */
         private int maxToolCalls = 20;
+        /** 单轮中同一工具的最大调用次数（不同参数也计数） */
+        private int maxCallsPerTool = 6;
         /** 单轮总耗时上限（秒） */
         private long maxDurationSeconds = 240;
         /** 返回给模型的单个工具结果最大字符数（超出受控截断） */

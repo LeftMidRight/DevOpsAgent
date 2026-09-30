@@ -38,7 +38,10 @@
 - Java 17 可继续使用。聊天客户端使用新的 OpenAI SDK，`volcengine.chat.base-url` 填 API 根路径，例如 `https://ark.cn-beijing.volces.com/api/coding/v3`；客户端自动追加 `/chat/completions`，无需配置 `completions-path`。
 - `/api/chat_stream` 收到模型片段后立即发送内容和推理 SSE；最终持久化答案取最后一次模型回答。SDK 的累计推理字段转换为增量，避免重复显示。
 - 运行轨迹逐次记录模型 token 用量，结束事件保存整轮累计用量。`/actuator/prometheus` 导出模型、工具及应用指标，`/actuator/health` 提供健康检查。
+- 工具循环由 `ChatClient` + `ToolCallingAdvisor` 执行；每次模型调用都会检查预算、记录轨迹。`agent.budget.max-calls-per-tool` 默认 6 次，总工具上限仍为 20 次；超限时返回工具错误给模型，允许其基于已有信息回答。
 - `mvn clean test` 包含本地 HTTP 模型兼容性测试和应用启动测试；这些测试使用模拟基础设施，不代表已完成真实豆包、PostgreSQL、MinIO 和 MCP 联调。
+
+配置和回归范围见 [Spring AI 2.0.1 引入记录](docs/spring-ai-2-migration.md)。
 
 ## 📦 核心模块
 

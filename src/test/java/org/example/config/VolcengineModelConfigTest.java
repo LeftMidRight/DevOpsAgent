@@ -11,6 +11,7 @@ import org.example.agent.TaskMode;
 import org.example.agent.UnifiedAgentFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.MessageAggregator;
 import org.springframework.ai.chat.prompt.Prompt;
@@ -76,15 +77,16 @@ class VolcengineModelConfigTest {
             props.setModel("doubao-test");
             UnifiedAgentFactory factory = new UnifiedAgentFactory(props, connection, null, null, null, null, null, observations, meters);
             ChatModel model = factory.createChatModel(AgentTaskPolicy.of(TaskMode.CHAT, props));
+            ChatClient client = ChatClient.builder(model, observations, null, null).build();
 
-            ChatResponse sync = model.call(new Prompt("hello"));
+            ChatResponse sync = client.prompt(new Prompt("hello")).call().chatResponse();
             assertEquals("FINAL", sync.getResult().getOutput().getText());
             assertEquals("think done", ReasoningContentExtractor.extract(sync.getResult().getOutput()));
             assertEquals(15, sync.getMetadata().getUsage().getTotalTokens());
 
             AtomicReference<ChatResponse> streamed = new AtomicReference<>();
             StringBuilder reasoning = new StringBuilder();
-            new MessageAggregator().aggregate(model.stream(new Prompt("hello")).doOnNext(part -> {
+            new MessageAggregator().aggregate(client.prompt(new Prompt("hello")).stream().chatResponse().doOnNext(part -> {
                 if (part.getResult() != null) {
                     String delta = ReasoningContentExtractor.extract(part.getResult().getOutput());
                     if (delta != null) {

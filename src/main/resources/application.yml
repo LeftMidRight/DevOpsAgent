@@ -137,6 +137,7 @@ agent:
   budget:
     max-model-calls: 12
     max-tool-calls: 20
+    max-calls-per-tool: 6
     max-duration-seconds: 240
     max-tool-result-chars: 6000
     max-consecutive-tool-failures: 2

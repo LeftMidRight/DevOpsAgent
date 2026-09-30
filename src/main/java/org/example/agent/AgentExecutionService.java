@@ -16,24 +16,21 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.ToolCallingAdvisor;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.model.MessageAggregator;
-import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.DefaultToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallingManager;
-import org.springframework.ai.model.tool.ToolExecutionResult;
+import org.springframework.ai.model.tool.ToolCallLimitBehavior;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.HashMap;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 统一执行入口：
@@ -55,6 +52,7 @@ public class AgentExecutionService {
     private final ContextProperties contextProperties;
     private final TokenEstimator tokenEstimator;
     private final ToolCallingManager toolCallingManager;
+    private final ObservationRegistry observationRegistry;
 
     public AgentExecutionService(
             ConversationService conversationService,
@@ -74,8 +72,13 @@ public class AgentExecutionService {
         this.properties = properties;
         this.contextProperties = contextProperties;
         this.tokenEstimator = tokenEstimator;
+        this.observationRegistry = observationRegistry;
         this.toolCallingManager = DefaultToolCallingManager.builder()
-                .observationRegistry(observationRegistry).build();
+                .observationRegistry(observationRegistry)
+                .maxCallsPerTool(properties.getBudget().getMaxCallsPerTool())
+                .maxTotalToolCalls(properties.getBudget().getMaxToolCalls())
+                .onLimitExceeded(ToolCallLimitBehavior.RETURN_ERROR_RESPONSE)
+                .build();
     }
 
     public record AgentExecutionRequest(
@@ -239,64 +242,22 @@ public class AgentExecutionService {
         history.add(new SystemMessage(agent.systemPrompt()));
         history.addAll(contextMessages);
         Prompt prompt = new Prompt(history, agent.options());
-        while (true) {
-            budgetHook.beforeModel(prompt.getInstructions());
-            trajectoryHook.beforeModel(prompt.getInstructions());
-            ChatResponse response = collector == null
-                    ? agent.chatModel().call(prompt)
-                    : streamRound(agent, prompt, runContext, events, collector);
-            runContext.rejectLateResult();
-            trajectoryRun.recordUsage("chat", "model", response.getMetadata().getUsage());
-            AssistantMessage assistant = response.getResult().getOutput();
-            List<Message> afterModel = new ArrayList<>(prompt.getInstructions());
-            afterModel.add(assistant);
-            trajectoryHook.afterModel(afterModel);
-            if (!response.hasToolCalls()) {
-                return response;
-            }
-            ToolExecutionResult executed = toolCallingManager.executeToolCalls(prompt, response);
-            prompt = new Prompt(executed.conversationHistory(), agent.options());
+        ChatClient client = ChatClient.builder(agent.chatModel(), observationRegistry, null, null)
+                .defaultAdvisors(
+                        ToolCallingAdvisor.builder().toolCallingManager(toolCallingManager).build(),
+                        new RunModelAdvisor(runContext, budgetHook, trajectoryRun, trajectoryHook, events, collector))
+                .build();
+        if (collector == null) {
+            return client.prompt(prompt).call().chatResponse();
         }
-    }
-
-    private ChatResponse streamRound(
-            PreparedAgent agent,
-            Prompt prompt,
-            AgentRunContext runContext,
-            AgentExecutionEvents events,
-            StreamingAnswerCollector collector) {
         Duration remaining = runContext.remaining();
         if (remaining.isZero()) {
             throw new BudgetExceededException(
                     "任务超过最大耗时 " + runContext.budget().getMaxDurationSeconds() + " 秒",
                     BudgetExceededException.Kind.DEADLINE);
         }
-        Flux<ChatResponse> stream = agent.chatModel().stream(prompt);
-        AtomicReference<ChatResponse> aggregated = new AtomicReference<>();
-        StringBuilder reasoning = new StringBuilder();
         try {
-            new MessageAggregator().aggregate(stream.doOnNext(part -> {
-                runContext.rejectLateResult();
-                if (part.getResult() == null || part.getResult().getOutput() == null) {
-                    return;
-                }
-                AssistantMessage message = part.getResult().getOutput();
-                String chunk = message.getText();
-                if (chunk != null && !chunk.isEmpty()) {
-                    collector.onStreamingChunk(chunk);
-                    events.onContentDelta(chunk);
-                }
-                String reasoningChunk = ReasoningContentExtractor.extract(message);
-                if (reasoningChunk != null) {
-                    // Spring AI 2 的 SDK 返回累计推理内容；转为 SSE 增量。
-                    if (reasoningChunk.startsWith(reasoning.toString())) {
-                        reasoningChunk = reasoningChunk.substring(reasoning.length());
-                    }
-                    reasoning.append(reasoningChunk);
-                    collector.onReasoningChunk(reasoningChunk);
-                    events.onReasoningDelta(reasoningChunk);
-                }
-            }), aggregated::set).blockLast(remaining);
+            return client.prompt(prompt).stream().chatResponse().blockLast(remaining);
         } catch (RuntimeException e) {
             if (runContext.isDeadlineExceeded()
                     || (e.getMessage() != null && e.getMessage().toLowerCase().contains("timeout"))) {
@@ -306,22 +267,6 @@ public class AgentExecutionService {
             }
             throw e;
         }
-        ChatResponse response = aggregated.get();
-        if (response == null || response.getResult() == null) {
-            throw new IllegalStateException("模型没有返回内容");
-        }
-        AssistantMessage finished = response.getResult().getOutput();
-        if (reasoning.length() > 0) {
-            var metadata = new HashMap<>(finished.getMetadata());
-            metadata.put(ReasoningContentExtractor.METADATA_KEY, reasoning.toString());
-            finished = AssistantMessage.builder().content(finished.getText())
-                    .properties(metadata).toolCalls(finished.getToolCalls()).build();
-            response = ChatResponse.builder().from(response)
-                    .generations(List.of(new Generation(finished, response.getResult().getMetadata()))).build();
-        }
-        collector.onModelFinished(finished.getText());
-        collector.onReasoningFinished(finished);
-        return response;
     }
 
     private int messageTokenBudget() {
