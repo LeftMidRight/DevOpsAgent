@@ -1,5 +1,6 @@
 package org.example.config;
 
+import io.micrometer.observation.ObservationRegistry;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,9 +30,11 @@ public class VolcengineModelConfig {
     @Bean
     public OpenAiChatModel volcengineChatModel(
             OpenAiApi volcengineOpenAiApi,
+            ObservationRegistry observationRegistry,
             @Value("${agent.model}") String modelName) {
         return OpenAiChatModel.builder()
                 .openAiApi(volcengineOpenAiApi)
+                .observationRegistry(observationRegistry)
                 .defaultOptions(org.springframework.ai.openai.OpenAiChatOptions.builder()
                         .model(modelName)
                         .build())

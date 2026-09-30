@@ -10,6 +10,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.DefaultUsage;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -64,6 +65,23 @@ class JsonlTrajectoryStoreTest {
     }
 
     @Test
+    void terminalEventIncludesUsageAcrossAllModelRounds() throws Exception {
+        TrajectoryRun run = trajectoryService.startRun("usage-session", UUID.randomUUID(), "CHAT", "sync", "check");
+        run.recordUsage("chat", "model", new DefaultUsage(10, 3, 13));
+        run.recordUsage("chat", "model", new DefaultUsage(20, 5, 25));
+        run.complete("done");
+
+        List<JsonNode> events = Files.readAllLines(store.pathForConversation("usage-session"))
+                .stream().map(this::readTree).toList();
+        assertEquals(2, events.stream().filter(event -> "model.usage".equals(type(event))).count());
+        JsonNode summary = events.get(events.size() - 1).get("payload");
+        assertEquals(2, summary.get("usageReports").asInt());
+        assertEquals(30, summary.get("promptTokens").asInt());
+        assertEquals(8, summary.get("completionTokens").asInt());
+        assertEquals(38, summary.get("totalTokens").asInt());
+    }
+
+    @Test
     void capturesNewAgentMessagesWithoutDuplicatingInputContextAndRedactsSecrets() throws Exception {
         UUID requestId = UUID.randomUUID();
         TrajectoryRun run = trajectoryService.startRun("session-1", requestId, "CHAT", "stream", "查一下状态");
@@ -73,19 +91,19 @@ class JsonlTrajectoryStoreTest {
                 new UserMessage("查一下状态"));
         TrajectoryModelHook hook = run.captureHook(initial);
 
-        hook.beforeModel(initial, null);
+        hook.beforeModel(initial);
         AssistantMessage toolCall = AssistantMessage.builder()
                 .content("")
                 .toolCalls(List.of(new AssistantMessage.ToolCall(
                         "call-1", "function", "queryStatus", "{\"api_key\":\"top-secret\",\"id\":42}")))
                 .build();
-        hook.afterModel(append(initial, toolCall), null);
+        hook.afterModel(append(initial, toolCall));
 
         ToolResponseMessage toolResult = ToolResponseMessage.builder()
                 .responses(List.of(new ToolResponseMessage.ToolResponse(
                         "call-1", "queryStatus", "{\"password\":\"hidden\",\"status\":\"ok\"}")))
                 .build();
-        hook.beforeModel(append(initial, toolCall, toolResult), null);
+        hook.beforeModel(append(initial, toolCall, toolResult));
         run.fail(new IllegalStateException("downstream failed"));
         run.complete("must not create a second terminal event");
 

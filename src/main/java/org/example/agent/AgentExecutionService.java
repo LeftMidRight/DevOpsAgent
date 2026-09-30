@@ -1,10 +1,6 @@
 package org.example.agent;
 
-import org.springframework.ai.chat.model.ChatModel;
-import com.alibaba.cloud.ai.graph.NodeOutput;
-import com.alibaba.cloud.ai.graph.agent.ReactAgent;
-import com.alibaba.cloud.ai.graph.streaming.OutputType;
-import com.alibaba.cloud.ai.graph.streaming.StreamingOutput;
+import io.micrometer.observation.ObservationRegistry;
 import org.example.context.ContextAssembler;
 import org.example.context.ContextPackage;
 import org.example.context.ContextProperties;
@@ -15,16 +11,29 @@ import org.example.conversation.ConversationService;
 import org.example.conversation.ConversationTurn;
 import org.example.trajectory.TrajectoryRun;
 import org.example.trajectory.TrajectoryService;
+import org.example.trajectory.TrajectoryModelHook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.MessageAggregator;
+import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.DefaultToolCallingManager;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 统一执行入口：
@@ -45,6 +54,7 @@ public class AgentExecutionService {
     private final AgentProperties properties;
     private final ContextProperties contextProperties;
     private final TokenEstimator tokenEstimator;
+    private final ToolCallingManager toolCallingManager;
 
     public AgentExecutionService(
             ConversationService conversationService,
@@ -54,7 +64,8 @@ public class AgentExecutionService {
             TrajectoryService trajectoryService,
             AgentProperties properties,
             ContextProperties contextProperties,
-            TokenEstimator tokenEstimator) {
+            TokenEstimator tokenEstimator,
+            ObservationRegistry observationRegistry) {
         this.conversationService = conversationService;
         this.conversationCoordinator = conversationCoordinator;
         this.contextAssembler = contextAssembler;
@@ -63,6 +74,8 @@ public class AgentExecutionService {
         this.properties = properties;
         this.contextProperties = contextProperties;
         this.tokenEstimator = tokenEstimator;
+        this.toolCallingManager = DefaultToolCallingManager.builder()
+                .observationRegistry(observationRegistry).build();
     }
 
     public record AgentExecutionRequest(
@@ -116,16 +129,14 @@ public class AgentExecutionService {
                 logger.info("统一执行开始 - SessionId: {}, runId: {}, mode: {}, 消息数: {}",
                         conversationId, trajectoryRun.runId(), request.mode(), context.messages().size());
 
-                ReactAgent agent = agentFactory.createAgent(
-                        policy,
-                        chatModel,
-                        runContext,
-                        trajectoryRun.captureHook(context.messages()),
-                        new BudgetEnforcementHook(runContext, tokenEstimator, messageTokenBudget()));
+                PreparedAgent agent = agentFactory.createAgent(policy, chatModel, runContext);
+                BudgetEnforcementHook budgetHook = new BudgetEnforcementHook(
+                        runContext, tokenEstimator, messageTokenBudget());
+                TrajectoryModelHook trajectoryHook = trajectoryRun.captureHook(context.messages());
 
                 ModelReply modelReply = request.streaming()
-                        ? executeStreaming(agent, context.messages(), events, trajectoryRun, runContext)
-                        : callAndGuard(agent, context.messages(), runContext);
+                        ? executeStreaming(agent, context.messages(), events, trajectoryRun, runContext, budgetHook, trajectoryHook)
+                        : callAndGuard(agent, context.messages(), trajectoryRun, runContext, budgetHook, trajectoryHook);
 
                 runContext.rejectLateResult();
 
@@ -179,10 +190,17 @@ public class AgentExecutionService {
                 conversationId, turn.requestId(), trajectoryRun.runId(), request.mode(), finalAnswer, reasoning);
     }
 
-    private ModelReply callAndGuard(ReactAgent agent, List<Message> messages, AgentRunContext runContext) throws Exception {
-        var response = agent.call(messages);
+    private ModelReply callAndGuard(
+            PreparedAgent agent,
+            List<Message> messages,
+            TrajectoryRun trajectoryRun,
+            AgentRunContext runContext,
+            BudgetEnforcementHook budgetHook,
+            TrajectoryModelHook trajectoryHook) {
+        ChatResponse response = runUntilAnswer(agent, messages, trajectoryRun, runContext, budgetHook, trajectoryHook, null, null);
         runContext.rejectLateResult();
-        return new ModelReply(response.getText(), ReasoningContentExtractor.extract(response));
+        AssistantMessage output = response.getResult().getOutput();
+        return new ModelReply(output.getText(), ReasoningContentExtractor.extract(output));
     }
 
     /**
@@ -190,50 +208,91 @@ public class AgentExecutionService {
      * 不会拼入最终持久化答案。
      */
     private ModelReply executeStreaming(
-            ReactAgent agent,
+            PreparedAgent agent,
             List<Message> messages,
             AgentExecutionEvents events,
             TrajectoryRun trajectoryRun,
-            AgentRunContext runContext) throws Exception {
+            AgentRunContext runContext,
+            BudgetEnforcementHook budgetHook,
+            TrajectoryModelHook trajectoryHook) {
         StreamingAnswerCollector collector = new StreamingAnswerCollector();
-        Flux<NodeOutput> stream = agent.stream(messages);
+        ChatResponse response = runUntilAnswer(
+                agent, messages, trajectoryRun, runContext, budgetHook, trajectoryHook, events, collector);
+        runContext.rejectLateResult();
+        String authoritative = collector.authoritativeAnswer();
+        if (authoritative == null || authoritative.isBlank()) {
+            throw new IllegalStateException("未从模型输出提取到完整回答");
+        }
+        return new ModelReply(authoritative, collector.authoritativeReasoning());
+    }
+
+    private ChatResponse runUntilAnswer(
+            PreparedAgent agent,
+            List<Message> contextMessages,
+            TrajectoryRun trajectoryRun,
+            AgentRunContext runContext,
+            BudgetEnforcementHook budgetHook,
+            TrajectoryModelHook trajectoryHook,
+            AgentExecutionEvents events,
+            StreamingAnswerCollector collector) {
+        List<Message> history = new ArrayList<>();
+        history.add(new SystemMessage(agent.systemPrompt()));
+        history.addAll(contextMessages);
+        Prompt prompt = new Prompt(history, agent.options());
+        while (true) {
+            budgetHook.beforeModel(prompt.getInstructions());
+            trajectoryHook.beforeModel(prompt.getInstructions());
+            ChatResponse response = collector == null
+                    ? agent.chatModel().call(prompt)
+                    : streamRound(agent, prompt, runContext, events, collector);
+            runContext.rejectLateResult();
+            trajectoryRun.recordUsage("chat", "model", response.getMetadata().getUsage());
+            AssistantMessage assistant = response.getResult().getOutput();
+            List<Message> afterModel = new ArrayList<>(prompt.getInstructions());
+            afterModel.add(assistant);
+            trajectoryHook.afterModel(afterModel);
+            if (!response.hasToolCalls()) {
+                return response;
+            }
+            ToolExecutionResult executed = toolCallingManager.executeToolCalls(prompt, response);
+            prompt = new Prompt(executed.conversationHistory(), agent.options());
+        }
+    }
+
+    private ChatResponse streamRound(
+            PreparedAgent agent,
+            Prompt prompt,
+            AgentRunContext runContext,
+            AgentExecutionEvents events,
+            StreamingAnswerCollector collector) {
         Duration remaining = runContext.remaining();
         if (remaining.isZero()) {
             throw new BudgetExceededException(
                     "任务超过最大耗时 " + runContext.budget().getMaxDurationSeconds() + " 秒",
                     BudgetExceededException.Kind.DEADLINE);
         }
+        Flux<ChatResponse> stream = agent.chatModel().stream(prompt);
+        AtomicReference<ChatResponse> aggregated = new AtomicReference<>();
+        StringBuilder reasoning = new StringBuilder();
         try {
-            stream.doOnNext(output -> {
-                if (runContext.isTerminated() || runContext.isDeadlineExceeded()) {
+            new MessageAggregator().aggregate(stream.doOnNext(part -> {
+                runContext.rejectLateResult();
+                if (part.getResult() == null || part.getResult().getOutput() == null) {
                     return;
                 }
-            if (!(output instanceof StreamingOutput streamingOutput)) {
-                collector.onRoundBoundary();
-                return;
-            }
-            OutputType type = streamingOutput.getOutputType();
-            Message modelMessage = streamingOutput.message();
-            if (type == OutputType.AGENT_MODEL_STREAMING) {
-                String chunk = modelMessage == null ? null : modelMessage.getText();
+                AssistantMessage message = part.getResult().getOutput();
+                String chunk = message.getText();
                 if (chunk != null && !chunk.isEmpty()) {
                     collector.onStreamingChunk(chunk);
                     events.onContentDelta(chunk);
                 }
-                String reasoningChunk = ReasoningContentExtractor.extract(modelMessage);
+                String reasoningChunk = ReasoningContentExtractor.extract(message);
                 if (reasoningChunk != null) {
+                    reasoning.append(reasoningChunk);
                     collector.onReasoningChunk(reasoningChunk);
                     events.onReasoningDelta(reasoningChunk);
                 }
-            } else if (type == OutputType.AGENT_MODEL_FINISHED) {
-                String finished = modelMessage == null ? null : modelMessage.getText();
-                collector.onModelFinished(finished);
-                collector.onReasoningFinished(modelMessage);
-                trajectoryRun.recordUsage(output.node(), type.name(), output.tokenUsage());
-            } else {
-                collector.onRoundBoundary();
-            }
-            }).blockLast(remaining);
+            }), aggregated::set).blockLast(remaining);
         } catch (RuntimeException e) {
             if (runContext.isDeadlineExceeded()
                     || (e.getMessage() != null && e.getMessage().toLowerCase().contains("timeout"))) {
@@ -243,13 +302,22 @@ public class AgentExecutionService {
             }
             throw e;
         }
-
-        runContext.rejectLateResult();
-        String authoritative = collector.authoritativeAnswer();
-        if (authoritative == null || authoritative.isBlank()) {
-            throw new IllegalStateException("未从框架终态提取到完整回答");
+        ChatResponse response = aggregated.get();
+        if (response == null || response.getResult() == null) {
+            throw new IllegalStateException("模型没有返回内容");
         }
-        return new ModelReply(authoritative, collector.authoritativeReasoning());
+        AssistantMessage finished = response.getResult().getOutput();
+        if (reasoning.length() > 0) {
+            var metadata = new HashMap<>(finished.getMetadata());
+            metadata.put(ReasoningContentExtractor.METADATA_KEY, reasoning.toString());
+            finished = AssistantMessage.builder().content(finished.getText())
+                    .properties(metadata).toolCalls(finished.getToolCalls()).build();
+            response = ChatResponse.builder().from(response)
+                    .generations(List.of(new Generation(finished, response.getResult().getMetadata()))).build();
+        }
+        collector.onModelFinished(finished.getText());
+        collector.onReasoningFinished(finished);
+        return response;
     }
 
     private int messageTokenBudget() {

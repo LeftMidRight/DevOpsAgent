@@ -20,7 +20,7 @@ class BudgetEnforcementHookTest {
         BudgetEnforcementHook hook = new BudgetEnforcementHook(ctx, new TokenEstimator(), 20);
 
         BudgetExceededException ex = assertThrows(BudgetExceededException.class,
-                () -> hook.beforeModel(List.of(new UserMessage("中".repeat(80))), null));
+                () -> hook.beforeModel(List.of(new UserMessage("中".repeat(80)))));
         assertTrue(ex.allowsPartialResult());
         assertTrue(ex.getMessage().contains("上下文") || ex.getMessage().contains("token"));
     }

@@ -30,6 +30,10 @@ public final class TrajectoryRun {
     private final Instant startedAt = Instant.now();
     private final AtomicLong nextSequence = new AtomicLong(1);
     private final AtomicBoolean terminal = new AtomicBoolean();
+    private long promptTokens;
+    private long completionTokens;
+    private long totalTokens;
+    private int usageReports;
 
     TrajectoryRun(
             UUID runId,
@@ -95,7 +99,7 @@ public final class TrajectoryRun {
         append("message." + message.getMessageType().getValue(), payload);
     }
 
-    public void recordUsage(String node, String outputType, Usage usage) {
+    public synchronized void recordUsage(String node, String outputType, Usage usage) {
         if (usage == null) {
             return;
         }
@@ -106,28 +110,42 @@ public final class TrajectoryRun {
         payload.put("completionTokens", usage.getCompletionTokens());
         payload.put("totalTokens", usage.getTotalTokens());
         append("model.usage", payload);
+        promptTokens += usage.getPromptTokens() == null ? 0 : usage.getPromptTokens();
+        completionTokens += usage.getCompletionTokens() == null ? 0 : usage.getCompletionTokens();
+        totalTokens += usage.getTotalTokens() == null ? 0 : usage.getTotalTokens();
+        usageReports++;
     }
 
-    public void complete(String answer) {
+    public synchronized void complete(String answer) {
         if (!terminal.compareAndSet(false, true)) {
             return;
         }
-        append("run.completed", Map.of(
-                "status", "COMPLETED",
-                "durationMs", elapsedMillis(),
-                "answer", sanitizer.truncate(answer)));
+        Map<String, Object> payload = usageSummary();
+        payload.put("status", "COMPLETED");
+        payload.put("durationMs", elapsedMillis());
+        payload.put("answer", sanitizer.truncate(answer));
+        append("run.completed", payload);
     }
 
-    public void fail(Throwable error) {
+    public synchronized void fail(Throwable error) {
         if (!terminal.compareAndSet(false, true)) {
             return;
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
+        Map<String, Object> payload = usageSummary();
         payload.put("status", "FAILED");
         payload.put("durationMs", elapsedMillis());
         payload.put("errorType", error == null ? "unknown" : error.getClass().getName());
         payload.put("message", error == null ? "unknown error" : sanitizer.truncate(error.getMessage()));
         append("run.failed", payload);
+    }
+
+    private Map<String, Object> usageSummary() {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("usageReports", usageReports);
+        payload.put("promptTokens", promptTokens);
+        payload.put("completionTokens", completionTokens);
+        payload.put("totalTokens", totalTokens);
+        return payload;
     }
 
     private void recordAssistantMessage(AssistantMessage message, String phase) {

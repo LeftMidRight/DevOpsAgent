@@ -1,8 +1,7 @@
 package org.example.agent;
 
-import com.alibaba.cloud.ai.graph.agent.ReactAgent;
-import com.alibaba.cloud.ai.graph.agent.hook.Hook;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.observation.ObservationRegistry;
 import org.example.context.ContextAssembler;
 import org.example.context.ContextPackage;
 import org.example.context.ContextProperties;
@@ -22,6 +21,8 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
+import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
@@ -29,6 +30,8 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -44,7 +47,6 @@ class AgentExecutionServiceTest {
     @Test
     void streamingPersistsLastModelRoundOnly() throws Exception {
         ChatModel model = mock(ChatModel.class);
-        when(model.getDefaultOptions()).thenReturn(OpenAiChatOptions.builder().model("offline-probe").build());
         AtomicInteger rounds = new AtomicInteger();
         when(model.stream(any(Prompt.class))).thenAnswer(invocation -> {
             AssistantMessage message;
@@ -72,9 +74,41 @@ class AgentExecutionServiceTest {
     }
 
     @Test
+    void streamingEmitsBeforeCompletionAndAggregatesTextReasoningAndUsage() throws Exception {
+        ChatModel model = mock(ChatModel.class);
+        List<String> emitted = new ArrayList<>();
+        when(model.stream(any(Prompt.class))).thenReturn(Flux.concat(
+                Flux.just(new ChatResponse(List.of(new Generation(AssistantMessage.builder()
+                        .content("FI").properties(Map.of("reasoningContent", "think ")).build())))),
+                Flux.defer(() -> {
+                    assertEquals(List.of("FI"), emitted, "first chunk must arrive before the next is produced");
+                    return Flux.just(new ChatResponse(List.of(new Generation(AssistantMessage.builder()
+                            .content("NAL").properties(Map.of("reasoningContent", "done")).build()))));
+                }),
+                Flux.just(new ChatResponse(List.of(), ChatResponseMetadata.builder()
+                        .usage(new DefaultUsage(10, 5, 15)).build()))));
+        ConversationService conversations = mockConversations();
+        ConversationTurn turn = new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID());
+        when(conversations.beginTurn(anyString(), anyString(), anyString())).thenReturn(turn);
+        AgentExecutionEvents events = new AgentExecutionEvents() {
+            @Override
+            public void onContentDelta(String chunk) {
+                emitted.add(chunk);
+            }
+        };
+
+        AgentExecutionResult result = newService(model, new AgentProperties(), conversations).execute(
+                new AgentExecutionService.AgentExecutionRequest("probe-session", "check", TaskMode.CHAT, true, events));
+
+        assertEquals(List.of("FI", "NAL"), emitted);
+        assertEquals("FINAL", result.answer());
+        assertEquals("think done", result.reasoning());
+        verify(conversations).completeTurn(turn, "FINAL", "CHAT");
+    }
+
+    @Test
     void lateModelResultIsNotCommitted() throws Exception {
         ChatModel model = mock(ChatModel.class);
-        when(model.getDefaultOptions()).thenReturn(OpenAiChatOptions.builder().model("offline-probe").build());
         when(model.call(any(Prompt.class))).thenAnswer(invocation -> {
             Thread.sleep(1200);
             return new ChatResponse(List.of(new Generation(new AssistantMessage("LATE_FINAL"))));
@@ -107,18 +141,17 @@ class AgentExecutionServiceTest {
         ContextAssembler assembler = mock(ContextAssembler.class);
         when(assembler.assemble(anyString(), any(), any())).thenReturn(
                 new ContextPackage(List.of(new UserMessage("check service")), 10, 1, 0));
-        UnifiedAgentFactory factory = new UnifiedAgentFactory(props, null, null, null, null, null, null) {
+        UnifiedAgentFactory factory = new UnifiedAgentFactory(props, null, null, null, null, null, null, ObservationRegistry.NOOP) {
             @Override
             public ChatModel createChatModel(AgentTaskPolicy policy) {
                 return model;
             }
 
             @Override
-            public ReactAgent createAgent(
+            public PreparedAgent createAgent(
                     AgentTaskPolicy policy,
                     ChatModel chatModel,
-                    AgentRunContext run,
-                    Hook... hooks) {
+                    AgentRunContext run) {
                 ToolCallback tool = new ToolCallback() {
                     @Override
                     public ToolDefinition getToolDefinition() {
@@ -131,11 +164,14 @@ class AgentExecutionServiceTest {
                         return "{\"success\":true,\"service\":\"probe\"}";
                     }
                 };
-                return ReactAgent.builder().name("acceptance_probe").model(chatModel)
-                        .systemPrompt(policy.systemPrompt())
-                        .tools(new EvidenceCollectingToolCallback(tool, run, "local"))
-                        .hooks(hooks)
-                        .build();
+                return new PreparedAgent(
+                        chatModel,
+                        policy.systemPrompt(),
+                        OpenAiChatOptions.builder()
+                                .model("offline-probe")
+                                .toolCallbacks(List.of(new EvidenceCollectingToolCallback(tool, run, "local")))
+                                .internalToolExecutionEnabled(false)
+                                .build());
             }
         };
         TrajectoryProperties trajectoryProps = new TrajectoryProperties();
@@ -152,6 +188,7 @@ class AgentExecutionServiceTest {
                 trajectories,
                 props,
                 new ContextProperties(),
-                new TokenEstimator());
+                new TokenEstimator(),
+                ObservationRegistry.NOOP);
     }
 }

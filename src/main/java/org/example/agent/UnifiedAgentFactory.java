@@ -1,7 +1,6 @@
 package org.example.agent;
 
-import com.alibaba.cloud.ai.graph.agent.ReactAgent;
-import com.alibaba.cloud.ai.graph.agent.hook.Hook;
+import io.micrometer.observation.ObservationRegistry;
 import org.example.agent.tool.DateTimeTools;
 import org.example.agent.tool.InternalDocsTools;
 import org.example.agent.tool.QueryLogsTools;
@@ -40,6 +39,7 @@ public class UnifiedAgentFactory {
     private static final ToolCallbackProvider NO_MCP_TOOLS = () -> new ToolCallback[0];
 
     private final AgentProperties properties;
+    private final ObservationRegistry observationRegistry;
     private final OpenAiApi volcengineOpenAiApi;
     private final DateTimeTools dateTimeTools;
     private final InternalDocsTools internalDocsTools;
@@ -54,8 +54,10 @@ public class UnifiedAgentFactory {
             InternalDocsTools internalDocsTools,
             QueryMetricsTools queryMetricsTools,
             ObjectProvider<QueryLogsTools> queryLogsTools,
-            @Autowired(required = false) @Qualifier("mcpAsyncToolCallbacks") ToolCallbackProvider mcpToolProvider) {
+            @Autowired(required = false) @Qualifier("mcpAsyncToolCallbacks") ToolCallbackProvider mcpToolProvider,
+            ObservationRegistry observationRegistry) {
         this.properties = properties;
+        this.observationRegistry = observationRegistry;
         this.volcengineOpenAiApi = volcengineOpenAiApi;
         this.dateTimeTools = dateTimeTools;
         this.internalDocsTools = internalDocsTools;
@@ -72,32 +74,38 @@ public class UnifiedAgentFactory {
                 .model(properties.getModel())
                 .temperature(policy.temperature())
                 .maxTokens(policy.maxTokens())
-                .topP(policy.topP());
+                .topP(policy.topP())
+                .streamUsage(true);
         if (properties.getThinking().isEnabled()) {
             optionsBuilder.extraBody(Map.of("thinking", Map.of("type", properties.getThinking().getType())));
         }
         return OpenAiChatModel.builder()
                 .openAiApi(volcengineOpenAiApi)
+                .observationRegistry(observationRegistry)
                 .defaultOptions(optionsBuilder.build())
                 .build();
     }
 
     /**
-     * 创建统一业务 Agent。工具集在本方法内完成注册、冲突检查与证据包装。
+     * 创建本轮对话使用的模型和工具参数。工具循环不在模型内部执行。
      */
-    public ReactAgent createAgent(
+    public PreparedAgent createAgent(
             AgentTaskPolicy policy,
             ChatModel chatModel,
-            AgentRunContext runContext,
-            Hook... hooks) {
+            AgentRunContext runContext) {
         ToolCallback[] wrapped = collectAndWrapTools(runContext);
-        return ReactAgent.builder()
-                .name(AGENT_NAME)
-                .model(chatModel)
-                .systemPrompt(policy.systemPrompt())
-                .tools(wrapped)
-                .hooks(hooks)
-                .build();
+        OpenAiChatOptions.Builder optionsBuilder = OpenAiChatOptions.builder()
+                .model(properties.getModel())
+                .temperature(policy.temperature())
+                .maxTokens(policy.maxTokens())
+                .topP(policy.topP())
+                .streamUsage(true)
+                .toolCallbacks(List.of(wrapped))
+                .internalToolExecutionEnabled(false);
+        if (properties.getThinking().isEnabled()) {
+            optionsBuilder.extraBody(Map.of("thinking", Map.of("type", properties.getThinking().getType())));
+        }
+        return new PreparedAgent(chatModel, policy.systemPrompt(), optionsBuilder.build());
     }
 
     private ToolCallback[] collectAndWrapTools(AgentRunContext runContext) {

@@ -1,17 +1,14 @@
 package org.example.trajectory;
 
-import com.alibaba.cloud.ai.graph.RunnableConfig;
-import com.alibaba.cloud.ai.graph.agent.hook.HookPosition;
-import com.alibaba.cloud.ai.graph.agent.hook.HookPositions;
-import com.alibaba.cloud.ai.graph.agent.hook.messages.AgentCommand;
-import com.alibaba.cloud.ai.graph.agent.hook.messages.MessagesModelHook;
 import org.springframework.ai.chat.messages.Message;
 
 import java.util.List;
 import java.util.Objects;
 
-@HookPositions({HookPosition.BEFORE_MODEL, HookPosition.AFTER_MODEL})
-public final class TrajectoryModelHook extends MessagesModelHook {
+/**
+ * 记录本轮新产生的模型消息和工具结果，不重复写入组装好的历史上下文。
+ */
+public final class TrajectoryModelHook {
 
     private final TrajectoryRun run;
     private final List<Message> initialMessages;
@@ -23,21 +20,12 @@ public final class TrajectoryModelHook extends MessagesModelHook {
         this.initialMessages = List.copyOf(initialMessages);
     }
 
-    @Override
-    public String getName() {
-        return "trajectory_capture";
-    }
-
-    @Override
-    public synchronized AgentCommand beforeModel(List<Message> messages, RunnableConfig config) {
+    public synchronized void beforeModel(List<Message> messages) {
         capture(messages, "before_model", true);
-        return super.beforeModel(messages, config);
     }
 
-    @Override
-    public synchronized AgentCommand afterModel(List<Message> messages, RunnableConfig config) {
+    public synchronized void afterModel(List<Message> messages) {
         capture(messages, "after_model", false);
-        return super.afterModel(messages, config);
     }
 
     private void capture(List<Message> messages, String phase, boolean initializationOnly) {
@@ -75,9 +63,6 @@ public final class TrajectoryModelHook extends MessagesModelHook {
                 return start + initialMessages.size();
             }
         }
-        // beforeModel runs before the first generated message. If a framework
-        // version rewrites the input list, treating the current size as the
-        // initial boundary prevents historical context from being duplicated.
         return messages.size();
     }
 }

@@ -6,6 +6,12 @@ server:
       enabled: true
       force: true
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+
 file:
   upload:
     allowed-extensions: txt,md
