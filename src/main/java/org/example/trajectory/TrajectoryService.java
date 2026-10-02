@@ -18,12 +18,11 @@ public class TrajectoryService {
     public TrajectoryRun startRun(
             String conversationId,
             UUID requestId,
-            String taskMode,
             String transport,
             String question) {
         TrajectoryRun run = new TrajectoryRun(
                 UUID.randomUUID(), conversationId, requestId, "unified_business_agent", store, sanitizer);
-        run.start(taskMode, transport);
+        run.start(transport);
         run.recordUserMessage(question);
         return run;
     }

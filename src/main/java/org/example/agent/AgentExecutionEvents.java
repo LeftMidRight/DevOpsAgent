@@ -26,7 +26,7 @@ public interface AgentExecutionEvents {
     }
 
     /** 会话已创建后立即发送，失败路径也能让调用方拿到 sessionId */
-    default void onMeta(String sessionId, String requestId, String runId, String mode) {
+    default void onMeta(String sessionId, String requestId, String runId) {
     }
 
     /** 权威最终答案，用于替换前端过程文本 */

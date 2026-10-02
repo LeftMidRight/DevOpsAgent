@@ -26,30 +26,14 @@ public class ConversationService {
     }
 
     public ConversationTurn beginTurn(String conversationId, String question) {
-        return beginTurn(conversationId, question, null);
-    }
-
-    /** 任务模式写入消息 metadata，供后续按模式检索与审计 */
-    public ConversationTurn beginTurn(String conversationId, String question, String taskMode) {
         UUID requestId = UUID.randomUUID();
         ConversationMessage userMessage = conversationRepository.appendMessage(
-                conversationId, requestId, "user", question, "PENDING", modeMetadata(taskMode));
+                conversationId, requestId, "user", question, "PENDING", null);
         return new ConversationTurn(conversationId, requestId, userMessage.id());
     }
 
     public void completeTurn(ConversationTurn turn, String answer) {
         conversationRepository.completeTurn(turn, answer);
-    }
-
-    public void completeTurn(ConversationTurn turn, String answer, String taskMode) {
-        conversationRepository.completeTurn(turn, answer, modeMetadata(taskMode));
-    }
-
-    private static String modeMetadata(String taskMode) {
-        if (taskMode == null || taskMode.isBlank()) {
-            return null;
-        }
-        return "{\"mode\":\"" + taskMode + "\"}";
     }
 
     public void failTurn(ConversationTurn turn) {

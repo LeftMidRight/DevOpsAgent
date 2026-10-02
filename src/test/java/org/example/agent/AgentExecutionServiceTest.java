@@ -71,11 +71,11 @@ class AgentExecutionServiceTest {
             AgentProperties props = new AgentProperties();
             props.getBudget().setMaxModelCalls(2);
             ConversationService conversations = mockConversations();
-            when(conversations.beginTurn(anyString(), anyString(), anyString())).thenReturn(
+            when(conversations.beginTurn(anyString(), anyString())).thenReturn(
                     new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID()));
             AgentExecutionResult result = newService(model, props, conversations).execute(
                     new AgentExecutionService.AgentExecutionRequest(
-                            "probe-session", "check", TaskMode.CHAT, streaming, AgentExecutionEvents.NOOP));
+                            "probe-session", "check", streaming, AgentExecutionEvents.NOOP));
             assertEquals(2, rounds.get());
             assertTrue(result.answer().contains("模型调用次数超过上限 2"));
         }
@@ -89,7 +89,7 @@ class AgentExecutionServiceTest {
                 new ChatResponse(List.of(new Generation(new AssistantMessage("LATE"))))));
         ConversationService conversations = mockConversations();
         ConversationTurn turn = new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID());
-        when(conversations.beginTurn(anyString(), anyString(), anyString())).thenReturn(turn);
+        when(conversations.beginTurn(anyString(), anyString())).thenReturn(turn);
         RunCancellation cancellation = new RunCancellation();
         List<String> emitted = new ArrayList<>();
         AgentExecutionEvents events = new AgentExecutionEvents() {
@@ -102,10 +102,10 @@ class AgentExecutionServiceTest {
         AgentExecutionService service = newService(model, new AgentProperties(), conversations);
         BudgetExceededException error = assertThrows(BudgetExceededException.class, () -> service.execute(
                 new AgentExecutionService.AgentExecutionRequest(
-                        "probe-session", "check", TaskMode.CHAT, true, events, cancellation)));
+                        "probe-session", "check", true, events, cancellation)));
         assertEquals(BudgetExceededException.Kind.CANCELLED, error.kind());
         assertEquals(List.of("FIRST"), emitted);
-        verify(conversations, never()).completeTurn(any(), anyString(), anyString());
+        verify(conversations, never()).completeTurn(any(), anyString());
         verify(conversations).failTurn(turn);
     }
 
@@ -140,7 +140,7 @@ class AgentExecutionServiceTest {
                 props.getBudget().setMaxCallsPerTool(totalLimit ? 6 : 2);
                 props.getBudget().setMaxToolCalls(totalLimit ? 1 : 20);
                 ConversationService conversations = mockConversations();
-                when(conversations.beginTurn(anyString(), anyString(), anyString())).thenAnswer(invocation ->
+                when(conversations.beginTurn(anyString(), anyString())).thenAnswer(invocation ->
                         new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID()));
                 AtomicInteger toolCalls = new AtomicInteger();
                 TrajectoryProperties trajectories = new TrajectoryProperties();
@@ -149,7 +149,7 @@ class AgentExecutionServiceTest {
 
                 for (int request = 0; request < 2; request++) {
                     AgentExecutionResult result = service.execute(new AgentExecutionService.AgentExecutionRequest(
-                            "probe-session", "check", TaskMode.CHAT, streaming, AgentExecutionEvents.NOOP));
+                            "probe-session", "check", streaming, AgentExecutionEvents.NOOP));
                     assertEquals("FINAL", result.answer());
                     assertEquals((request + 1) * (totalLimit ? 1 : 2), toolCalls.get());
                 }
@@ -178,13 +178,13 @@ class AgentExecutionServiceTest {
                 when(model.call(any(Prompt.class))).thenAnswer(invocation -> reply.get());
             }
             ConversationService conversations = mockConversations();
-            when(conversations.beginTurn(anyString(), anyString(), anyString())).thenReturn(
+            when(conversations.beginTurn(anyString(), anyString())).thenReturn(
                     new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID()));
             TrajectoryProperties props = new TrajectoryProperties();
             props.setBaseDir(tempDir.resolve(Boolean.toString(streaming)).toString());
             AgentExecutionService service = newService(model, new AgentProperties(), conversations, props, new AtomicInteger());
             service.execute(new AgentExecutionService.AgentExecutionRequest(
-                    "probe-session", "check", TaskMode.CHAT, streaming, AgentExecutionEvents.NOOP));
+                    "probe-session", "check", streaming, AgentExecutionEvents.NOOP));
 
             JsonMapper mapper = new JsonMapper();
             Path log = new JsonlTrajectoryStore(mapper, props).pathForConversation("probe-session");
@@ -217,14 +217,14 @@ class AgentExecutionServiceTest {
 
         ConversationService conversations = mockConversations();
         ConversationTurn turn = new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID());
-        when(conversations.beginTurn(anyString(), anyString(), anyString())).thenReturn(turn);
+        when(conversations.beginTurn(anyString(), anyString())).thenReturn(turn);
         AgentExecutionService service = newService(model, new AgentProperties(), conversations);
 
         AgentExecutionResult result = service.execute(new AgentExecutionService.AgentExecutionRequest(
-                "probe-session", "check service", TaskMode.CHAT, true, AgentExecutionEvents.NOOP));
+                "probe-session", "check service", true, AgentExecutionEvents.NOOP));
 
         assertEquals("FINAL", result.answer());
-        verify(conversations).completeTurn(turn, "FINAL", "CHAT");
+        verify(conversations).completeTurn(turn, "FINAL");
         assertEquals(2, rounds.get());
     }
 
@@ -244,7 +244,7 @@ class AgentExecutionServiceTest {
                         .usage(new DefaultUsage(10, 5, 15)).build()))));
         ConversationService conversations = mockConversations();
         ConversationTurn turn = new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID());
-        when(conversations.beginTurn(anyString(), anyString(), anyString())).thenReturn(turn);
+        when(conversations.beginTurn(anyString(), anyString())).thenReturn(turn);
         AgentExecutionEvents events = new AgentExecutionEvents() {
             @Override
             public void onContentDelta(String chunk) {
@@ -253,12 +253,12 @@ class AgentExecutionServiceTest {
         };
 
         AgentExecutionResult result = newService(model, new AgentProperties(), conversations).execute(
-                new AgentExecutionService.AgentExecutionRequest("probe-session", "check", TaskMode.CHAT, true, events));
+                new AgentExecutionService.AgentExecutionRequest("probe-session", "check", true, events));
 
         assertEquals(List.of("FI", "NAL"), emitted);
         assertEquals("FINAL", result.answer());
         assertEquals("think done", result.reasoning());
-        verify(conversations).completeTurn(turn, "FINAL", "CHAT");
+        verify(conversations).completeTurn(turn, "FINAL");
     }
 
     @Test
@@ -273,13 +273,13 @@ class AgentExecutionServiceTest {
         props.getBudget().setMaxDurationSeconds(1);
         ConversationService conversations = mockConversations();
         ConversationTurn turn = new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID());
-        when(conversations.beginTurn(anyString(), anyString(), anyString())).thenReturn(turn);
+        when(conversations.beginTurn(anyString(), anyString())).thenReturn(turn);
         AgentExecutionService service = newService(model, props, conversations);
 
         assertThrows(BudgetExceededException.class, () -> service.execute(
                 new AgentExecutionService.AgentExecutionRequest(
-                        "probe-session", "slow check", TaskMode.CHAT, false, AgentExecutionEvents.NOOP)));
-        verify(conversations, never()).completeTurn(any(), anyString(), anyString());
+                        "probe-session", "slow check", false, AgentExecutionEvents.NOOP)));
+        verify(conversations, never()).completeTurn(any(), anyString());
         verify(conversations).failTurn(turn);
     }
 

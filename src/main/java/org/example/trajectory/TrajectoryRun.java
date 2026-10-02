@@ -54,9 +54,8 @@ public final class TrajectoryRun {
         return runId;
     }
 
-    void start(String taskMode, String transport) {
+    void start(String transport) {
         append("run.started", Map.of(
-                "taskMode", taskMode,
                 "transport", transport,
                 "status", "RUNNING"));
     }
