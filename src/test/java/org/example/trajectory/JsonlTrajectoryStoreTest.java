@@ -46,7 +46,7 @@ class JsonlTrajectoryStoreTest {
     void appendsOneValidJsonObjectPerLineWithMonotonicSequence() throws Exception {
         String conversationId = "../../unsafe/session";
         TrajectoryRun run = trajectoryService.startRun(
-                conversationId, UUID.randomUUID(), "CHAT", "sync", "当前问题");
+                conversationId, UUID.randomUUID(), "sync", "当前问题");
         run.recordContext(new ContextPackage(List.of(), 120, 4, 8));
         run.complete("最终回答");
 
@@ -67,7 +67,7 @@ class JsonlTrajectoryStoreTest {
 
     @Test
     void terminalEventIncludesUsageAcrossAllModelRounds() throws Exception {
-        TrajectoryRun run = trajectoryService.startRun("usage-session", UUID.randomUUID(), "CHAT", "sync", "check");
+        TrajectoryRun run = trajectoryService.startRun("usage-session", UUID.randomUUID(), "sync", "check");
         run.recordUsage("chat", "model", new DefaultUsage(10, 3, 13));
         run.recordUsage("chat", "model", new DefaultUsage(20, 5, 25));
         run.complete("done");
@@ -85,7 +85,7 @@ class JsonlTrajectoryStoreTest {
     @Test
     void capturesNewAgentMessagesWithoutDuplicatingInputContextAndRedactsSecrets() throws Exception {
         UUID requestId = UUID.randomUUID();
-        TrajectoryRun run = trajectoryService.startRun("session-1", requestId, "CHAT", "stream", "查一下状态");
+        TrajectoryRun run = trajectoryService.startRun("session-1", requestId, "stream", "查一下状态");
         List<Message> initial = List.of(
                 new UserMessage("历史问题"),
                 new AssistantMessage("历史回答"),

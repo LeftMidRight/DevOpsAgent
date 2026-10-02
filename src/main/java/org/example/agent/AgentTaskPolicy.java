@@ -4,15 +4,13 @@ package org.example.agent;
  * 聊天 Agent 的任务要求与模型参数。
  */
 public record AgentTaskPolicy(
-        TaskMode mode,
         String systemPrompt,
         double temperature,
         int maxTokens,
         double topP
 ) {
-    public static AgentTaskPolicy of(TaskMode mode, AgentProperties properties) {
+    public static AgentTaskPolicy of(AgentProperties properties) {
         return new AgentTaskPolicy(
-                TaskMode.CHAT,
                 chatSystemPrompt(),
                 properties.getChat().getTemperature(),
                 properties.getChat().getMaxTokens(),
