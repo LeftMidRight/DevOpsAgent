@@ -15,7 +15,7 @@ class BudgetEnforcementHookTest {
     @Test
     void beforeModel_rejectsWhenMessageTokensExceedBudget() {
         AgentRunContext ctx = new AgentRunContext(
-                UUID.randomUUID(), new AgentProperties.Budget(),
+                UUID.randomUUID(), TaskMode.CHAT, new AgentProperties.Budget(),
                 AgentExecutionEvents.NOOP, Instant.now().plusSeconds(30), new RunCancellation());
         BudgetEnforcementHook hook = new BudgetEnforcementHook(ctx, new TokenEstimator(), 20);
 

@@ -7,6 +7,7 @@ import io.micrometer.observation.ObservationRegistry;
 import org.example.agent.AgentProperties;
 import org.example.agent.AgentTaskPolicy;
 import org.example.agent.ReasoningContentExtractor;
+import org.example.agent.TaskMode;
 import org.example.agent.UnifiedAgentFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
@@ -75,7 +76,7 @@ class VolcengineModelConfigTest {
             AgentProperties props = new AgentProperties();
             props.setModel("doubao-test");
             UnifiedAgentFactory factory = new UnifiedAgentFactory(props, connection, null, null, null, null, null, observations, meters);
-            ChatModel model = factory.createChatModel(AgentTaskPolicy.of(props));
+            ChatModel model = factory.createChatModel(AgentTaskPolicy.of(TaskMode.CHAT, props));
             ChatClient client = ChatClient.builder(model, observations, null, null).build();
 
             ChatResponse sync = client.prompt(new Prompt("hello")).call().chatResponse();

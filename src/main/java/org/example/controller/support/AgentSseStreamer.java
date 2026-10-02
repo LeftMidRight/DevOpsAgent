@@ -3,6 +3,7 @@ package org.example.controller.support;
 import org.example.agent.AgentExecutionEvents;
 import org.example.agent.AgentExecutionService;
 import org.example.agent.RunCancellation;
+import org.example.agent.TaskMode;
 import org.example.dto.ChatRequest;
 import org.example.dto.SseMessage;
 import org.example.service.ChatApplicationService;
@@ -48,7 +49,7 @@ public class AgentSseStreamer {
         try {
             ChatApplicationService.PreparedChat prepared = prepare.get();
             streamingTaskExecutor.execute(() -> runStream(
-                    emitter, prepared.sessionId(), prepared.question()));
+                    emitter, prepared.sessionId(), prepared.question(), prepared.mode()));
         } catch (IllegalArgumentException e) {
             logger.warn("流式请求参数无效: {}", e.getMessage());
             sendAndComplete(emitter, SseMessage.error(e.getMessage()));
@@ -56,13 +57,13 @@ public class AgentSseStreamer {
         return emitter;
     }
 
-    public SseEmitter startStream(String requestedId, String question, long timeoutMs) {
+    public SseEmitter startStream(String requestedId, String question, TaskMode mode, long timeoutMs) {
         SseEmitter emitter = new SseEmitter(timeoutMs);
-        streamingTaskExecutor.execute(() -> runStream(emitter, requestedId, question));
+        streamingTaskExecutor.execute(() -> runStream(emitter, requestedId, question, mode));
         return emitter;
     }
 
-    public void runStream(SseEmitter emitter, String requestedId, String question) {
+    public void runStream(SseEmitter emitter, String requestedId, String question, TaskMode mode) {
         RunCancellation cancellation = new RunCancellation();
         emitter.onTimeout(cancellation::cancel);
         emitter.onError(error -> cancellation.cancel());
@@ -70,16 +71,16 @@ public class AgentSseStreamer {
         try {
             AgentExecutionEvents events = sseEvents(emitter, cancellation);
             agentExecutionService.execute(new AgentExecutionService.AgentExecutionRequest(
-                    requestedId, question, true, events, cancellation));
+                    requestedId, question, mode, true, events, cancellation));
 
             send(emitter, SseMessage.done(), cancellation);
             emitter.complete();
-            logger.info("流式任务完成");
+            logger.info("流式任务完成 - mode: {}", mode);
         } catch (Exception e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
-            logger.error("流式任务失败", e);
+            logger.error("流式任务失败 - mode: {}", mode, e);
             send(emitter, SseMessage.error(failureMessage(e)), cancellation);
             emitter.completeWithError(e);
         }
@@ -107,8 +108,8 @@ public class AgentSseStreamer {
             }
 
             @Override
-            public void onMeta(String sessionId, String requestId, String runId) {
-                send(emitter, SseMessage.meta(new SseMetaPayload(sessionId, requestId, runId)), cancellation);
+            public void onMeta(String sessionId, String requestId, String runId, String taskMode) {
+                send(emitter, SseMessage.meta(new SseMetaPayload(sessionId, requestId, runId, taskMode)), cancellation);
             }
 
             @Override

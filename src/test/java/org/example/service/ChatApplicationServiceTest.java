@@ -1,6 +1,7 @@
 package org.example.service;
 
 import org.example.agent.AgentExecutionService;
+import org.example.agent.TaskMode;
 import org.example.dto.ChatRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,10 +39,12 @@ class ChatApplicationServiceTest {
         ChatRequest request = new ChatRequest();
         request.setId("session-1");
         request.setQuestion("  hello  ");
+        request.setMode("ops");
 
         ChatApplicationService.PreparedChat prepared = chatApplicationService.prepareChat(request);
 
         assertEquals("session-1", prepared.sessionId());
         assertEquals("hello", prepared.question());
+        assertEquals(TaskMode.CHAT, prepared.mode());
     }
 }

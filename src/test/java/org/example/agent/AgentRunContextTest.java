@@ -13,7 +13,7 @@ class AgentRunContextTest {
     void rejectLateResult_throwsWhenDeadlinePassed() {
         AgentProperties.Budget budget = new AgentProperties.Budget();
         AgentRunContext ctx = new AgentRunContext(
-                UUID.randomUUID(), budget, AgentExecutionEvents.NOOP,
+                UUID.randomUUID(), TaskMode.CHAT, budget, AgentExecutionEvents.NOOP,
                 Instant.now().minusSeconds(1), new RunCancellation());
 
         BudgetExceededException ex = assertThrows(BudgetExceededException.class, ctx::rejectLateResult);
@@ -26,7 +26,7 @@ class AgentRunContextTest {
         RunCancellation cancellation = new RunCancellation();
         cancellation.cancel();
         AgentRunContext ctx = new AgentRunContext(
-                UUID.randomUUID(), new AgentProperties.Budget(),
+                UUID.randomUUID(), TaskMode.CHAT, new AgentProperties.Budget(),
                 AgentExecutionEvents.NOOP, Instant.now().plusSeconds(30), cancellation);
 
         BudgetExceededException ex = assertThrows(BudgetExceededException.class, ctx::rejectLateResult);
@@ -47,7 +47,7 @@ class AgentRunContextTest {
 
     private static AgentRunContext newContext() {
         return new AgentRunContext(
-                UUID.randomUUID(), new AgentProperties.Budget(),
+                UUID.randomUUID(), TaskMode.CHAT, new AgentProperties.Budget(),
                 AgentExecutionEvents.NOOP, Instant.now().plusSeconds(30), new RunCancellation());
     }
 }

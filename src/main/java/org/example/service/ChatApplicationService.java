@@ -3,6 +3,7 @@ package org.example.service;
 import org.example.agent.AgentExecutionEvents;
 import org.example.agent.AgentExecutionResult;
 import org.example.agent.AgentExecutionService;
+import org.example.agent.TaskMode;
 import org.example.dto.ChatAnswer;
 import org.example.dto.ChatRequest;
 import org.example.support.ChatRequestSupport;
@@ -26,11 +27,12 @@ public class ChatApplicationService {
 
     public ChatAnswer chat(ChatRequest request) throws Exception {
         PreparedChat prepared = prepareChat(request);
-        logger.info("收到对话请求 - SessionId: {}, Question: {}",
-                prepared.sessionId(), prepared.question());
+        logger.info("收到对话请求 - SessionId: {}, Question: {}, Mode: {}",
+                prepared.sessionId(), prepared.question(), prepared.mode());
         AgentExecutionResult result = agentExecutionService.execute(new AgentExecutionService.AgentExecutionRequest(
                 prepared.sessionId(),
                 prepared.question(),
+                prepared.mode(),
                 false,
                 AgentExecutionEvents.NOOP));
         return new ChatAnswer(result.conversationId(), result.answer(), result.reasoning());
@@ -45,9 +47,10 @@ public class ChatApplicationService {
         }
         return new PreparedChat(
                 request.getId(),
-                ChatRequestSupport.normalizedQuestion(request));
+                ChatRequestSupport.normalizedQuestion(request),
+                TaskMode.CHAT);
     }
 
-    public record PreparedChat(String sessionId, String question) {
+    public record PreparedChat(String sessionId, String question, TaskMode mode) {
     }
 }

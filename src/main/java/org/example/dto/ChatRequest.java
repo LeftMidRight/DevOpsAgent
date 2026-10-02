@@ -20,4 +20,7 @@ public class ChatRequest {
     @JsonAlias({"question", "QUESTION"})
     private String question;
 
+    @JsonProperty("Mode")
+    @JsonAlias({"mode", "MODE"})
+    private String mode;
 }

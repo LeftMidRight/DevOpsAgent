@@ -6,6 +6,7 @@ package org.example.dto;
 public record SseMetaPayload(
         String sessionId,
         String requestId,
-        String runId
+        String runId,
+        String mode
 ) {
 }

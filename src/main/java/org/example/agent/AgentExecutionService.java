@@ -84,6 +84,7 @@ public class AgentExecutionService {
     public record AgentExecutionRequest(
             String requestedConversationId,
             String question,
+            TaskMode mode,
             boolean streaming,
             AgentExecutionEvents events,
             RunCancellation cancellation
@@ -91,9 +92,10 @@ public class AgentExecutionService {
         public AgentExecutionRequest(
                 String requestedConversationId,
                 String question,
+                TaskMode mode,
                 boolean streaming,
                 AgentExecutionEvents events) {
-            this(requestedConversationId, question, streaming, events, new RunCancellation());
+            this(requestedConversationId, question, mode, streaming, events, new RunCancellation());
         }
 
         public AgentExecutionRequest {
@@ -110,25 +112,25 @@ public class AgentExecutionService {
 
         try (ConversationExecutionCoordinator.Lease ignored = conversationCoordinator.acquire(conversationId, deadline)) {
             ConversationTurn turn = conversationService.beginTurn(
-                    conversationId, request.question());
+                    conversationId, request.question(), request.mode().name());
             TrajectoryRun trajectoryRun = trajectoryService.startRun(
-                    conversationId, turn.requestId(),
+                    conversationId, turn.requestId(), request.mode().name(),
                     request.streaming() ? "stream" : "sync", request.question());
             AgentRunContext runContext = new AgentRunContext(
-                    trajectoryRun.runId(), properties.getBudget(), events, deadline, cancellation);
+                    trajectoryRun.runId(), request.mode(), properties.getBudget(), events, deadline, cancellation);
             events.onMeta(conversationId, turn.requestId().toString(),
-                    trajectoryRun.runId().toString());
+                    trajectoryRun.runId().toString(), request.mode().name());
 
             String reasoning = null;
             try {
-                events.onProgress("开始执行任务");
-                AgentTaskPolicy policy = AgentTaskPolicy.of(properties);
+                events.onProgress("开始执行任务（模式: " + request.mode() + "）");
+                AgentTaskPolicy policy = AgentTaskPolicy.of(request.mode(), properties);
                 ChatModel chatModel = agentFactory.createChatModel(policy);
 
                 ContextPackage context = contextAssembler.assemble(conversationId, turn.requestId(), chatModel);
                 trajectoryRun.recordContext(context);
-                logger.info("统一执行开始 - SessionId: {}, runId: {}, 消息数: {}",
-                        conversationId, trajectoryRun.runId(), context.messages().size());
+                logger.info("统一执行开始 - SessionId: {}, runId: {}, mode: {}, 消息数: {}",
+                        conversationId, trajectoryRun.runId(), request.mode(), context.messages().size());
 
                 PreparedAgent agent = agentFactory.createAgent(policy, chatModel, runContext);
                 BudgetEnforcementHook budgetHook = new BudgetEnforcementHook(
@@ -177,7 +179,7 @@ public class AgentExecutionService {
             AgentRunContext runContext,
             String finalAnswer,
             String reasoning) {
-        conversationService.completeTurn(turn, finalAnswer);
+        conversationService.completeTurn(turn, finalAnswer, request.mode().name());
         trajectoryRun.complete(finalAnswer);
         if (reasoning != null && !reasoning.isBlank()) {
             events.onReasoningFinal(reasoning);
@@ -188,7 +190,7 @@ public class AgentExecutionService {
                 reasoning == null ? 0 : reasoning.length(),
                 runContext.modelCalls(), runContext.toolCalls());
         return new AgentExecutionResult(
-                conversationId, turn.requestId(), trajectoryRun.runId(), finalAnswer, reasoning);
+                conversationId, turn.requestId(), trajectoryRun.runId(), request.mode(), finalAnswer, reasoning);
     }
 
     private ModelReply callAndGuard(

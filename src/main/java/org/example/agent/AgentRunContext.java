@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class AgentRunContext {
 
     private final UUID runId;
+    private final TaskMode mode;
     private final AgentProperties.Budget budget;
     private final Instant deadline;
     private final AgentExecutionEvents events;
@@ -31,19 +32,21 @@ public final class AgentRunContext {
     private final AtomicInteger evidenceSequence = new AtomicInteger();
     private final AtomicBoolean terminated = new AtomicBoolean();
 
-    public AgentRunContext(UUID runId, AgentProperties.Budget budget, AgentExecutionEvents events) {
-        this(runId, budget, events,
+    public AgentRunContext(UUID runId, TaskMode mode, AgentProperties.Budget budget, AgentExecutionEvents events) {
+        this(runId, mode, budget, events,
                 Instant.now().plus(Duration.ofSeconds(budget.getMaxDurationSeconds())),
                 new RunCancellation());
     }
 
     public AgentRunContext(
             UUID runId,
+            TaskMode mode,
             AgentProperties.Budget budget,
             AgentExecutionEvents events,
             Instant deadline,
             RunCancellation cancellation) {
         this.runId = runId;
+        this.mode = mode;
         this.budget = budget;
         this.deadline = deadline;
         this.events = events == null ? AgentExecutionEvents.NOOP : events;
@@ -52,6 +55,10 @@ public final class AgentRunContext {
 
     public UUID runId() {
         return runId;
+    }
+
+    public TaskMode mode() {
+        return mode;
     }
 
     public AgentProperties.Budget budget() {
