@@ -1,6 +1,7 @@
 package org.example.service;
 
 import org.example.config.FileUploadConfig;
+import org.example.parsing.DocumentExtensionSupport;
 import org.example.dto.KnowledgeDocumentSummary;
 import org.example.repository.DocumentRepository;
 import org.slf4j.Logger;
@@ -69,9 +70,10 @@ public class DocumentUploadService {
         UUID documentId = UUID.randomUUID();
         String objectKey = buildObjectKey(documentId, safeName);
 
-        objectStorageService.putObject(objectKey, content, size, contentTypeOf(safeName));
+        String mediaType = DocumentExtensionSupport.mimeTypeOf(safeName);
+        objectStorageService.putObject(objectKey, content, size, mediaType);
         try {
-            documentRepository.insert(documentId, safeName, objectKey, size);
+            documentRepository.insert(documentId, safeName, objectKey, size, mediaType);
         } catch (RuntimeException e) {
             objectStorageService.removeObject(objectKey);
             throw e;
@@ -118,14 +120,4 @@ public class DocumentUploadService {
         return allowedList.contains(extension.toLowerCase());
     }
 
-    private String contentTypeOf(String fileName) {
-        String lower = fileName.toLowerCase();
-        if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
-            return "text/markdown";
-        }
-        if (lower.endsWith(".txt")) {
-            return "text/plain";
-        }
-        return "application/octet-stream";
-    }
 }

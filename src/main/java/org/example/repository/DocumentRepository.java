@@ -17,11 +17,14 @@ import java.util.UUID;
 public class DocumentRepository {
 
     public static final String STATUS_UPLOADED = "UPLOADED";
+    public static final String STATUS_PROCESSING = "PROCESSING";
     public static final String STATUS_INDEXED = "INDEXED";
     public static final String STATUS_FAILED = "FAILED";
 
     private static final String SELECT_COLUMNS =
-            "SELECT id, file_name, object_key, size_bytes, status, chunk_count, error_message, created_at, indexed_at "
+            "SELECT id, file_name, object_key, size_bytes, status, chunk_count, error_message, "
+                    + "media_type, parser_name, parser_version, parsed_object_key, parsed_at, "
+                    + "created_at, indexed_at "
                     + "FROM knowledge_documents";
 
     private final JdbcTemplate jdbcTemplate;
@@ -30,10 +33,11 @@ public class DocumentRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public void insert(UUID id, String fileName, String objectKey, long sizeBytes) {
+    public void insert(UUID id, String fileName, String objectKey, long sizeBytes, String mediaType) {
         jdbcTemplate.update(
-                "INSERT INTO knowledge_documents (id, file_name, object_key, size_bytes, status) VALUES (?, ?, ?, ?, ?)",
-                id, fileName, objectKey, sizeBytes, STATUS_UPLOADED);
+                "INSERT INTO knowledge_documents (id, file_name, object_key, size_bytes, status, media_type) "
+                        + "VALUES (?, ?, ?, ?, ?, ?)",
+                id, fileName, objectKey, sizeBytes, STATUS_UPLOADED, mediaType);
     }
 
     public Optional<KnowledgeDocumentRow> findById(UUID id) {
@@ -44,6 +48,12 @@ public class DocumentRepository {
 
     public List<KnowledgeDocumentRow> findAll() {
         return jdbcTemplate.query(SELECT_COLUMNS + " ORDER BY created_at DESC", this::mapRow);
+    }
+
+    public void markProcessing(UUID id) {
+        jdbcTemplate.update(
+                "UPDATE knowledge_documents SET status = ?, error_message = NULL, updated_at = now() WHERE id = ?",
+                STATUS_PROCESSING, id);
     }
 
     public void markIndexed(UUID id, int chunkCount) {
@@ -59,12 +69,20 @@ public class DocumentRepository {
                 STATUS_FAILED, errorMessage, id);
     }
 
+    public void updateParsedArtifact(UUID id, String parserName, String parserVersion, String parsedObjectKey) {
+        jdbcTemplate.update(
+                "UPDATE knowledge_documents SET parser_name = ?, parser_version = ?, parsed_object_key = ?, "
+                        + "parsed_at = now(), updated_at = now() WHERE id = ?",
+                parserName, parserVersion, parsedObjectKey, id);
+    }
+
     public void deleteById(UUID id) {
         jdbcTemplate.update("DELETE FROM knowledge_documents WHERE id = ?", id);
     }
 
     private KnowledgeDocumentRow mapRow(ResultSet rs, int rowNum) throws SQLException {
         Timestamp indexedAt = rs.getTimestamp("indexed_at");
+        Timestamp parsedAt = rs.getTimestamp("parsed_at");
         return new KnowledgeDocumentRow(
                 rs.getObject("id", UUID.class),
                 rs.getString("file_name"),
@@ -73,6 +91,11 @@ public class DocumentRepository {
                 rs.getString("status"),
                 rs.getInt("chunk_count"),
                 rs.getString("error_message"),
+                rs.getString("media_type"),
+                rs.getString("parser_name"),
+                rs.getString("parser_version"),
+                rs.getString("parsed_object_key"),
+                parsedAt == null ? null : parsedAt.toInstant(),
                 rs.getTimestamp("created_at").toInstant(),
                 indexedAt == null ? null : indexedAt.toInstant());
     }

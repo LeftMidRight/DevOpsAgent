@@ -55,3 +55,6 @@ data/trajectories/
 ### docker
 /volumes
 /server.pid
+
+### Local planning notes (not versioned) ###
+docs/plan.md

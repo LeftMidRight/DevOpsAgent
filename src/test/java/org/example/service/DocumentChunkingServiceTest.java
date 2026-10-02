@@ -1,6 +1,8 @@
 package org.example.service;
 
 import org.example.dto.KnowledgeDocumentSummary;
+import org.example.parsing.DocumentParserRegistry;
+import org.example.parsing.PlainTextDocumentParser;
 import org.example.repository.ChunkRepository;
 import org.example.repository.DocumentRepository;
 import org.example.repository.KnowledgeDocumentRow;
@@ -53,8 +55,16 @@ class DocumentChunkingServiceTest {
         chunkConfig.setOverlap(100);
         ReflectionTestUtils.setField(documentChunkService, "chunkConfig", chunkConfig);
 
-        chunkingService = new DocumentChunkingService(
-                documentRepository, objectStorageService, documentChunkService, embeddingService, chunkRepository);
+        StructureAwareChunker structureAwareChunker = new StructureAwareChunker(documentChunkService, chunkConfig);
+        DocumentParserRegistry parserRegistry = new DocumentParserRegistry(List.of(new PlainTextDocumentParser()));
+        DocumentIngestionService ingestionService = new DocumentIngestionService(
+                documentRepository,
+                objectStorageService,
+                parserRegistry,
+                structureAwareChunker,
+                embeddingService,
+                chunkRepository);
+        chunkingService = new DocumentChunkingService(ingestionService);
     }
 
     @Test
@@ -68,6 +78,7 @@ class DocumentChunkingServiceTest {
 
         KnowledgeDocumentSummary result = chunkingService.chunkDocument(documentId);
 
+        verify(documentRepository).markProcessing(documentId);
         ArgumentCaptor<List<ChunkRecord>> rowsCaptor = chunksCaptor();
         verify(chunkRepository).replaceDocumentChunks(eq(documentId), eq("guide.md"), rowsCaptor.capture());
 
@@ -90,7 +101,8 @@ class DocumentChunkingServiceTest {
 
         KnowledgeDocumentSummary result = assertDoesNotThrow(() -> chunkingService.chunkDocument(documentId));
 
-        verify(documentRepository).markFailed(eq(documentId), contains("embedding boom"));
+        verify(documentRepository).markProcessing(documentId);
+        verify(documentRepository).markFailed(eq(documentId), contains("[INDEX]"));
         verify(documentRepository, never()).markIndexed(any(UUID.class), anyInt());
         verify(chunkRepository, never()).replaceDocumentChunks(any(UUID.class), anyString(), anyList());
         assertEquals(DocumentRepository.STATUS_FAILED, result.status());
@@ -150,6 +162,11 @@ class DocumentChunkingServiceTest {
                 100L,
                 status,
                 chunkCount,
+                null,
+                "text/markdown",
+                null,
+                null,
+                null,
                 null,
                 Instant.now(),
                 DocumentRepository.STATUS_INDEXED.equals(status) ? Instant.now() : null);

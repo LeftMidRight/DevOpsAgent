@@ -14,6 +14,11 @@ public record KnowledgeDocumentRow(
         String status,
         int chunkCount,
         String errorMessage,
+        String mediaType,
+        String parserName,
+        String parserVersion,
+        String parsedObjectKey,
+        Instant parsedAt,
         Instant createdAt,
         Instant indexedAt
 ) {}

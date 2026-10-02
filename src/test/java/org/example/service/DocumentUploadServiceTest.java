@@ -55,7 +55,7 @@ class DocumentUploadServiceTest {
 
         InOrder inOrder = inOrder(objectStorageService, documentRepository);
         inOrder.verify(objectStorageService).putObject(eq(keyCaptor.getValue()), any(InputStream.class), eq(12L), eq("text/markdown"));
-        inOrder.verify(documentRepository).insert(idCaptor.capture(), eq("guide.md"), eq(keyCaptor.getValue()), eq(12L));
+        inOrder.verify(documentRepository).insert(idCaptor.capture(), eq("guide.md"), eq(keyCaptor.getValue()), eq(12L), eq("text/markdown"));
         inOrder.verify(documentRepository).findById(idCaptor.getValue());
 
         assertEquals(DocumentRepository.STATUS_UPLOADED, result.status());
@@ -65,7 +65,7 @@ class DocumentUploadServiceTest {
     @Test
     void uploadDocument_removesObjectWhenRegistrationFails() {
         doThrow(new RuntimeException("db down"))
-                .when(documentRepository).insert(any(UUID.class), anyString(), anyString(), anyLong());
+                .when(documentRepository).insert(any(UUID.class), anyString(), anyString(), anyLong(), anyString());
 
         assertThrows(RuntimeException.class,
                 () -> uploadService.uploadDocument("guide.md", 3L, content("hi")));
@@ -138,7 +138,19 @@ class DocumentUploadServiceTest {
 
     private static KnowledgeDocumentRow uploadedRow(UUID id, String fileName, long size) {
         return new KnowledgeDocumentRow(
-                id, fileName, "documents/" + id + "/" + fileName, size,
-                DocumentRepository.STATUS_UPLOADED, 0, null, Instant.parse("2026-09-29T02:00:00Z"), null);
+                id,
+                fileName,
+                "documents/" + id + "/" + fileName,
+                size,
+                DocumentRepository.STATUS_UPLOADED,
+                0,
+                null,
+                "text/markdown",
+                null,
+                null,
+                null,
+                null,
+                Instant.parse("2026-09-29T02:00:00Z"),
+                null);
     }
 }

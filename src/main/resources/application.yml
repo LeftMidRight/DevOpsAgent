@@ -14,7 +14,19 @@ management:
 
 file:
   upload:
-    allowed-extensions: txt,md
+    allowed-extensions: txt,md,markdown,pdf,doc,docx,ppt,pptx,xls,xlsx,png,jpg,jpeg,webp,tiff
+
+mineru:
+  enabled: ${MINERU_ENABLED:false}
+  base-url: ${MINERU_BASE_URL:}
+  api-key: ${MINERU_API_KEY:}
+  tier: ${MINERU_TIER:standard}
+  output-format: structured_content
+  connect-timeout: 5s
+  read-timeout: 30s
+  transfer-timeout: 300s
+  poll-interval: 1s
+  max-poll-duration: 300s
 
 # MinIO 对象存储：文档原文的唯一存储位置
 minio:

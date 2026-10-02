@@ -6,6 +6,7 @@ import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.StatObjectArgs;
 import io.minio.errors.ErrorResponseException;
 import jakarta.annotation.PostConstruct;
 import org.example.config.MinioProperties;
@@ -13,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 
 /**
@@ -62,12 +64,12 @@ public class ObjectStorageService {
         }
     }
 
-    public byte[] getObject(String objectKey) {
-        try (InputStream in = minioClient.getObject(GetObjectArgs.builder()
-                .bucket(properties.getBucket())
-                .object(objectKey)
-                .build())) {
-            return in.readAllBytes();
+    public InputStream openObject(String objectKey) {
+        try {
+            return minioClient.getObject(GetObjectArgs.builder()
+                    .bucket(properties.getBucket())
+                    .object(objectKey)
+                    .build());
         } catch (ErrorResponseException e) {
             if ("NoSuchKey".equals(e.errorResponse().code())) {
                 throw new IllegalStateException("对象存储中不存在: " + objectKey);
@@ -75,6 +77,35 @@ public class ObjectStorageService {
             throw new RuntimeException("读取对象存储失败: " + objectKey + " - " + e.getMessage(), e);
         } catch (Exception e) {
             throw new RuntimeException("读取对象存储失败: " + objectKey + " - " + e.getMessage(), e);
+        }
+    }
+
+    public byte[] getObject(String objectKey) {
+        try (InputStream in = openObject(objectKey)) {
+            return in.readAllBytes();
+        } catch (Exception e) {
+            throw new RuntimeException("读取对象存储失败: " + objectKey + " - " + e.getMessage(), e);
+        }
+    }
+
+    public void putObjectBytes(String objectKey, byte[] bytes, String contentType) {
+        putObject(objectKey, new ByteArrayInputStream(bytes), bytes.length, contentType);
+    }
+
+    public boolean objectExists(String objectKey) {
+        try {
+            minioClient.statObject(StatObjectArgs.builder()
+                    .bucket(properties.getBucket())
+                    .object(objectKey)
+                    .build());
+            return true;
+        } catch (ErrorResponseException e) {
+            if ("NoSuchKey".equals(e.errorResponse().code())) {
+                return false;
+            }
+            throw new RuntimeException("检查对象存储失败: " + objectKey + " - " + e.getMessage(), e);
+        } catch (Exception e) {
+            throw new RuntimeException("检查对象存储失败: " + objectKey + " - " + e.getMessage(), e);
         }
     }
 

@@ -54,10 +54,21 @@ CREATE TABLE IF NOT EXISTS knowledge_documents (
   status        VARCHAR(32) NOT NULL DEFAULT 'UPLOADED',
   chunk_count   INT NOT NULL DEFAULT 0,
   error_message TEXT,
+  media_type    VARCHAR(128),
+  parser_name   VARCHAR(64),
+  parser_version VARCHAR(32),
+  parsed_object_key VARCHAR(1024),
+  parsed_at     TIMESTAMPTZ,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   indexed_at    TIMESTAMPTZ
 );
+
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS media_type VARCHAR(128);
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS parser_name VARCHAR(64);
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS parser_version VARCHAR(32);
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS parsed_object_key VARCHAR(1024);
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS parsed_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_documents_created_at
   ON knowledge_documents (created_at DESC);

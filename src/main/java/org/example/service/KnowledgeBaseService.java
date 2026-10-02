@@ -51,6 +51,9 @@ public class KnowledgeBaseService {
         int deletedChunks = chunkRepository.deleteByDocumentId(documentId);
         documentRepository.deleteById(documentId);
         objectStorageService.removeObject(document.objectKey());
+        if (document.parsedObjectKey() != null && !document.parsedObjectKey().isBlank()) {
+            objectStorageService.removeObject(document.parsedObjectKey());
+        }
         logger.info("已删除知识库文档: {}, 分片数: {}", document.fileName(), deletedChunks);
     }
 }
