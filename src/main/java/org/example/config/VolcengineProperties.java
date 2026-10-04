@@ -30,9 +30,14 @@ public class VolcengineProperties {
     @Setter
     public static class Embedding {
         private String baseUrl = "https://ark.cn-beijing.volces.com/api/coding/v3";
-        /** 多模态向量接口路径，相对 baseUrl */
+        /** 向量接口路径，相对 baseUrl */
         private String path = "/embeddings/multimodal";
         private String model = "doubao-embedding-vision";
         private int dimensions = 1024;
+        /**
+         * 请求体 input 形态：multimodal= [{"type":"text","text":...}]（火山多模态向量）；
+         * text= 纯字符串（OpenAI 兼容文本向量，如阿里 text-embedding 系列）。
+         */
+        private String inputStyle = "multimodal";
     }
 }

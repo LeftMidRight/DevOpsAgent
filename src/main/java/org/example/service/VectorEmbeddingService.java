@@ -13,7 +13,6 @@ import org.springframework.web.client.RestClient;
 
 import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,33 +52,8 @@ public class VectorEmbeddingService {
         return requestEmbeddings(List.of(content)).get(0);
     }
 
-    public List<List<Float>> generateEmbeddings(List<String> contents) {
-        if (contents == null || contents.isEmpty()) {
-            return Collections.emptyList();
-        }
-        return requestEmbeddings(contents);
-    }
-
     public List<Float> generateQueryVector(String query) {
         return generateEmbedding(query);
-    }
-
-    public float calculateCosineSimilarity(List<Float> vector1, List<Float> vector2) {
-        if (vector1.size() != vector2.size()) {
-            throw new IllegalArgumentException("向量维度不匹配");
-        }
-
-        float dotProduct = 0.0f;
-        float norm1 = 0.0f;
-        float norm2 = 0.0f;
-
-        for (int i = 0; i < vector1.size(); i++) {
-            dotProduct += vector1.get(i) * vector2.get(i);
-            norm1 += vector1.get(i) * vector1.get(i);
-            norm2 += vector2.get(i) * vector2.get(i);
-        }
-
-        return dotProduct / (float) (Math.sqrt(norm1) * Math.sqrt(norm2));
     }
 
     private List<List<Float>> requestEmbeddings(List<String> contents) {
@@ -94,9 +68,13 @@ public class VectorEmbeddingService {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("model", properties.getEmbedding().getModel());
-            body.put("encoding_format", "float");
             body.put("dimensions", properties.getEmbedding().getDimensions());
-            body.put("input", List.of(Map.of("type", "text", "text", content)));
+            if ("text".equalsIgnoreCase(properties.getEmbedding().getInputStyle())) {
+                body.put("input", content);
+            } else {
+                body.put("encoding_format", "float");
+                body.put("input", List.of(Map.of("type", "text", "text", content)));
+            }
 
             String responseBody = restClient.post()
                     .uri(properties.getEmbedding().getPath())

@@ -1,0 +1,30 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/superbiz
+    username: superbiz
+    password: superbiz
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-init-sql: "CREATE SCHEMA IF NOT EXISTS rag_eval; SET search_path TO rag_eval, public"
+  sql:
+    init:
+      mode: always
+  ai:
+    mcp:
+      client:
+        enabled: false
+
+minio:
+  endpoint: http://localhost:9000
+  access-key: superbiz
+  secret-key: superbiz
+  bucket: superbiz-rag-eval
+
+prometheus:
+  base-url: http://localhost:9090
+
+agent:
+  model: ${AGENT_MODEL:doubao-seed-2.1-turbo}
+
+volcengine:
+  api-key: ${VOLCENGINE_API_KEY:${ARK_API_KEY:your-api-key-here}}

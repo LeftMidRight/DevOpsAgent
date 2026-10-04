@@ -14,18 +14,18 @@ management:
 
 file:
   upload:
-    allowed-extensions: txt,md,markdown,pdf,doc,docx,ppt,pptx,xls,xlsx,png,jpg,jpeg,webp,tiff
+    allowed-extensions: txt,md,markdown,pdf,doc,docx,ppt,pptx,xlsx,png,jpg,jpeg,webp
 
 mineru:
   enabled: ${MINERU_ENABLED:false}
-  base-url: ${MINERU_BASE_URL:}
-  api-key: ${MINERU_API_KEY:}
-  tier: ${MINERU_TIER:standard}
-  output-format: structured_content
+  base-url: ${MINERU_BASE_URL:https://mineru.net}
+  language: ch
+  enable-table: true
+  ocr: false
+  enable-formula: true
   connect-timeout: 5s
   read-timeout: 30s
-  transfer-timeout: 300s
-  poll-interval: 1s
+  poll-interval: 2s
   max-poll-duration: 300s
 
 # MinIO 对象存储：文档原文的唯一存储位置
@@ -36,22 +36,27 @@ minio:
   bucket: ${MINIO_BUCKET:superbiz-documents}
 
 retrieval:
-  vector-top-n: 10
-  bm25-top-n: 10
+  vector-top-n: 20
+  bm25-top-n: 20
+  candidate-top-n: 20
   rrf-k: 60
   embedding-dim: 1024
+  min-score: 0
+  reranker:
+    type: none
 
 # 火山方舟（豆包）模型配置
 volcengine:
   api-key: ${VOLCENGINE_API_KEY:${ARK_API_KEY:your-api-key-here}}
   chat:
-    base-url: https://ark.cn-beijing.volces.com/api/coding/v3
+    base-url: ${VOLCENGINE_CHAT_BASE_URL:https://ark.cn-beijing.volces.com/api/coding/v3}
     timeout-ms: 180000
   embedding:
-    base-url: https://ark.cn-beijing.volces.com/api/coding/v3
-    path: /embeddings/multimodal
-    model: doubao-embedding-vision
-    dimensions: 1024
+    base-url: ${VOLCENGINE_EMBEDDING_BASE_URL:https://ark.cn-beijing.volces.com/api/coding/v3}
+    path: ${VOLCENGINE_EMBEDDING_PATH:/embeddings/multimodal}
+    model: ${VOLCENGINE_EMBEDDING_MODEL:doubao-embedding-vision}
+    dimensions: ${VOLCENGINE_EMBEDDING_DIMENSIONS:1024}
+    input-style: ${VOLCENGINE_EMBEDDING_INPUT_STYLE:multimodal}
 
 # Spring AI Alibaba DashScope 配置（保留 starter 兼容，主链路已切换至 volcengine）
 spring:
@@ -100,8 +105,9 @@ rag:
 # 文档分片配置
 document:
   chunk:
-    max-size: 800
-    overlap: 100
+    target-tokens: 450
+    max-tokens: 600
+    overlap-tokens: 60
 
 # 问答 Agent 上下文管理
 context:
@@ -133,7 +139,7 @@ cls:
 
 # 统一业务 Agent 配置
 agent:
-  model: "doubao-seed-2.1-turbo"
+  model: ${AGENT_MODEL:doubao-seed-2.1-turbo}
   chat:
     temperature: 0.7
     max-tokens: 2000
