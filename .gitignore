@@ -58,3 +58,13 @@ data/trajectories/
 
 ### Local planning notes (not versioned) ###
 docs/plan.md
+
+### Ragas eval (Python offline evaluator) ###
+# 全局 *.py 规则会忽略 eval 脚本，此处按需放行
+!eval/ragas/*.py
+eval/ragas/.venv/
+eval/ragas/input/*
+!eval/ragas/input/.gitkeep
+eval/ragas/output/*
+!eval/ragas/output/.gitkeep
+!eval/ragas/.env.example

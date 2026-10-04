@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -27,15 +28,18 @@ public class InternalDocsTools {
     public static final String TOOL_QUERY_INTERNAL_DOCS = "queryInternalDocs";
     
     private final HybridRetrievalService hybridRetrievalService;
-    
+    private final ObjectProvider<InternalDocsQueryListener> queryListeners;
+
     @Value("${rag.top-k:3}")
     private int topK = 3; // 默认值
-    
+
     private final ObjectMapper objectMapper = new JsonMapper();
-    
+
     @Autowired
-    public InternalDocsTools(HybridRetrievalService hybridRetrievalService) {
+    public InternalDocsTools(HybridRetrievalService hybridRetrievalService,
+                             ObjectProvider<InternalDocsQueryListener> queryListeners) {
         this.hybridRetrievalService = hybridRetrievalService;
+        this.queryListeners = queryListeners;
     }
     
     @Tool(description = "Use this tool to search internal documentation and knowledge base for relevant information. " +
@@ -48,17 +52,34 @@ public class InternalDocsTools {
 
         try {
             List<RetrievedChunk> searchResults = hybridRetrievalService.search(query, topK);
-            
+            notifyQueryListeners(query, searchResults);
+
             if (searchResults.isEmpty()) {
                 return "{\"status\": \"no_results\", \"message\": \"No relevant documents found in the knowledge base.\"}";
             }
-            
+
             return objectMapper.writeValueAsString(searchResults);
-            
+
         } catch (Exception e) {
             logger.error("[工具错误] queryInternalDocs 执行失败", e);
-            return String.format("{\"status\": \"error\", \"message\": \"Failed to query internal docs: %s\"}", 
+            return String.format("{\"status\": \"error\", \"message\": \"Failed to query internal docs: %s\"}",
                     e.getMessage());
+        }
+    }
+
+    /**
+     * 旁路通知评估监听器（如有）。监听异常不影响工具结果。
+     */
+    private void notifyQueryListeners(String query, List<RetrievedChunk> searchResults) {
+        if (queryListeners == null) {
+            return;
+        }
+        for (InternalDocsQueryListener listener : queryListeners) {
+            try {
+                listener.onQueryInternalDocs(query, searchResults);
+            } catch (Exception e) {
+                logger.warn("queryInternalDocs 监听器回调失败: {}", e.getMessage());
+            }
         }
     }
 }

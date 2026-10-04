@@ -1,0 +1,490 @@
+{
+  "references": [
+    {
+      "id": "cpu-001",
+      "reference": "HighCPUUsage 告警，告警级别为严重，触发条件是 CPU 使用率持续 5 分钟超过 80%。",
+      "expected_facts": [
+        "告警名 HighCPUUsage",
+        "告警级别严重",
+        "CPU 使用率持续 5 分钟超过 80%"
+      ]
+    },
+    {
+      "id": "cpu-002",
+      "reference": "CPU 使用率持续 5 分钟超过 80% 的排查步骤：1) 获取当前时间确定告警时间范围；2) 查询 ap-guangzhou 地域 system-metrics 日志主题（最近 30 分钟，cpu_usage > 80 AND service_name:*）；3) 分析日志中 CPU 消耗进程（进程名、PID、CPU 占用、启动时间、所属服务）；4) 查询 application-logs（level:ERROR OR level:WARN）。",
+      "expected_facts": [
+        "先获取当前时间",
+        "日志主题 system-metrics",
+        "地域 ap-guangzhou",
+        "查询语句 cpu_usage > 80 AND service_name:*",
+        "分析 CPU 消耗进程",
+        "查询 application-logs"
+      ]
+    },
+    {
+      "id": "cpu-003",
+      "reference": "CPU 使用率持续过高的表现：当服务器或容器 CPU 使用率持续超过 80% 时，可能导致应用响应变慢、请求超时增加、系统负载过高，并可能触发雪崩效应。",
+      "expected_facts": [
+        "CPU 使用率持续超过 80%",
+        "应用响应变慢",
+        "请求超时增加",
+        "系统负载过高",
+        "可能触发雪崩效应"
+      ]
+    },
+    {
+      "id": "cpu-004",
+      "reference": "排查 cpu_usage 超过 80 需查询 ap-guangzhou 地域的 system-metrics 日志主题，查询语句示例为 cpu_usage > 80 AND service_name:*，时间范围为最近 30 分钟。",
+      "expected_facts": [
+        "system-metrics 日志主题",
+        "地域 ap-guangzhou",
+        "cpu_usage > 80",
+        "最近 30 分钟"
+      ]
+    },
+    {
+      "id": "cpu-005",
+      "reference": "CPU 使用率过高告警处理方案（HighCPUUsage）包含：告警名称（严重级别，CPU 使用率持续 5 分钟超过 80%）、问题描述、排查步骤（查 system-metrics 与应用日志）、常见原因分析（死循环/无限递归、流量突增、定时任务重叠、数据库查询慢）、紧急处理措施与验证步骤。",
+      "expected_facts": [
+        "告警名 HighCPUUsage",
+        "常见原因包括死循环或无限递归",
+        "常见原因包括流量突增",
+        "常见原因包括定时任务重叠执行",
+        "常见原因包括数据库查询慢",
+        "包含紧急处理措施"
+      ]
+    },
+    {
+      "id": "cpu-006",
+      "reference": "机器发烫、系统很卡可能是 CPU 使用率过高：CPU 使用率持续超过 80% 时会导致应用响应变慢、请求超时增加、系统负载过高，可能触发雪崩效应，对应 HighCPUUsage 告警（严重级别）。",
+      "expected_facts": [
+        "对应 HighCPUUsage 告警",
+        "应用响应变慢",
+        "请求超时增加",
+        "系统负载过高"
+      ]
+    },
+    {
+      "id": "cpu-007",
+      "reference": "HighCPUUsage 告警级别为严重，触发条件是 CPU 使用率持续 5 分钟超过 80%。",
+      "expected_facts": [
+        "告警名 HighCPUUsage",
+        "告警级别严重",
+        "触发条件 CPU 使用率持续 5 分钟超过 80%"
+      ]
+    },
+    {
+      "id": "cpu-008",
+      "reference": "CPU 使用率持续超过 80% 可能触发雪崩效应，问题表现为应用响应变慢、请求超时增加、系统负载过高。",
+      "expected_facts": [
+        "可能触发雪崩效应",
+        "请求超时增加",
+        "系统负载过高"
+      ]
+    },
+    {
+      "id": "mem-001",
+      "reference": "HighMemoryUsage 告警，告警级别为严重，触发条件是内存使用率持续 5 分钟超过 85%。",
+      "expected_facts": [
+        "告警名 HighMemoryUsage",
+        "告警级别严重",
+        "内存使用率持续 5 分钟超过 85%"
+      ]
+    },
+    {
+      "id": "mem-002",
+      "reference": "内存使用率持续超过 85% 时可能导致：应用频繁 GC（垃圾回收）、OOM（Out Of Memory）错误、应用崩溃或重启、系统 swap 频繁且性能急剧下降。",
+      "expected_facts": [
+        "应用频繁 GC",
+        "OOM 错误",
+        "应用崩溃或重启",
+        "swap 频繁性能急剧下降"
+      ]
+    },
+    {
+      "id": "mem-003",
+      "reference": "OOMKilled 处理排查步骤：1) 获取当前时间；2) 查询 ap-guangzhou 地域 system-metrics 日志主题（memory_usage > 85 OR oom_kill:true）；3) 查询 application-logs（OutOfMemoryError OR GC overhead）；4) 分析 JVM 堆内存使用、GC 频率和耗时、是否存在内存泄漏迹象、大对象分配记录。",
+      "expected_facts": [
+        "system-metrics 日志主题",
+        "查询语句 memory_usage > 85 OR oom_kill:true",
+        "application-logs 查 OutOfMemoryError OR GC overhead",
+        "分析 JVM 堆内存和 GC 频率",
+        "检查内存泄漏迹象"
+      ]
+    },
+    {
+      "id": "mem-004",
+      "reference": "内存泄漏的特征：内存使用率持续缓慢上升、Full GC 后内存无法释放、应用运行时间越长内存占用越高、日志中有大量 GC 记录。处理方案：紧急重启应用释放内存，重启前 dump 堆内存快照，使用 MAT 工具分析堆转储，定位持有大量对象引用的代码并修复发布。",
+      "expected_facts": [
+        "Full GC 后内存无法释放",
+        "运行越久内存占用越高",
+        "重启前 dump 堆内存快照",
+        "使用 MAT 分析堆转储",
+        "定位修复内存泄漏代码"
+      ]
+    },
+    {
+      "id": "mem-005",
+      "reference": "内存使用率持续超过 85% 会导致系统 swap 频繁、性能急剧下降，同时伴随频繁 GC、OOM 错误、应用崩溃或重启。",
+      "expected_facts": [
+        "swap 频繁",
+        "性能急剧下降",
+        "频繁 GC",
+        "OOM 错误"
+      ]
+    },
+    {
+      "id": "mem-006",
+      "reference": "排查内存使用率大于 85：查询 ap-guangzhou 地域 system-metrics 日志主题，语句 memory_usage > 85 OR oom_kill:true；再查 application-logs（OutOfMemoryError OR GC overhead），并分析 JVM 堆内存、GC 频率、内存泄漏迹象与大对象分配。",
+      "expected_facts": [
+        "system-metrics 日志主题",
+        "memory_usage > 85 OR oom_kill:true",
+        "application-logs OutOfMemoryError OR GC overhead",
+        "分析 JVM 堆内存与 GC 频率"
+      ]
+    },
+    {
+      "id": "mem-007",
+      "reference": "容器内存打满会导致 OOM 错误、应用崩溃或重启，对应 HighMemoryUsage 告警（严重级别，内存使用率持续 5 分钟超过 85%）。",
+      "expected_facts": [
+        "对应 HighMemoryUsage 告警",
+        "内存使用率持续 5 分钟超过 85%",
+        "OOM 错误",
+        "应用崩溃或重启"
+      ]
+    },
+    {
+      "id": "mem-008",
+      "reference": "Out Of Memory（内存溢出）错误属于内存使用率过高的典型后果：内存使用率持续超过 85% 时会出现 OOM 错误、应用频繁 GC、应用崩溃或重启、swap 频繁性能下降，相关告警为 HighMemoryUsage / OOMError。",
+      "expected_facts": [
+        "内存使用率超过 85% 触发",
+        "出现 OOM 错误",
+        "应用崩溃或重启",
+        "相关告警 OOMError"
+      ]
+    },
+    {
+      "id": "disk-001",
+      "reference": "HighDiskUsage 告警，告警级别为警告（磁盘使用率 >80%）/ 严重（>90%），触发条件是磁盘使用率持续 5 分钟超过阈值。",
+      "expected_facts": [
+        "告警名 HighDiskUsage",
+        "警告级别对应 >80%",
+        "严重级别对应 >90%",
+        "磁盘使用率持续 5 分钟超过阈值"
+      ]
+    },
+    {
+      "id": "disk-002",
+      "reference": "磁盘使用率超过 90% 属于严重告警（HighDiskUsage），80% 以上为警告级别，触发条件为磁盘使用率持续 5 分钟超过阈值。",
+      "expected_facts": [
+        "HighDiskUsage 告警",
+        "超过 90% 为严重",
+        "超过 80% 为警告",
+        "持续 5 分钟超过阈值"
+      ]
+    },
+    {
+      "id": "disk-003",
+      "reference": "磁盘写满会导致：无法写入新数据、日志无法记录、应用崩溃、数据库损坏、系统性能下降。",
+      "expected_facts": [
+        "无法写入新数据",
+        "日志无法记录",
+        "应用崩溃",
+        "数据库损坏",
+        "系统性能下降"
+      ]
+    },
+    {
+      "id": "disk-004",
+      "reference": "排查 disk_usage 超过 80 / filesystem full：查询 ap-guangzhou 地域 system-metrics 日志主题（disk_usage > 80 OR filesystem:full，即 disk_usage:>80 OR disk_full:true），并查询 application-logs（No space left on device OR disk full），分析哪个目录占用最大、日志文件大小、临时文件数量、数据文件增长趋势。",
+      "expected_facts": [
+        "system-metrics 日志主题",
+        "disk_usage > 80 OR filesystem:full",
+        "application-logs No space left on device OR disk full",
+        "分析目录占用与日志文件大小"
+      ]
+    },
+    {
+      "id": "disk-005",
+      "reference": "清理磁盘空间步骤：用 find /var/log -type f -size +100M 与 du 找出大文件大目录，清空大日志（> /var/log/application.log）、压缩旧日志（gzip）、删除 7 天前日志；配置 logrotate 日志轮转；清理 /tmp 临时文件（find /tmp -type f -mtime +7 -delete）；清理缓存与 Docker 资源（docker system prune -a）；必要时扩容磁盘。",
+      "expected_facts": [
+        "find/du 查找大文件",
+        "清空或压缩旧日志",
+        "配置 logrotate",
+        "清理临时文件",
+        "清理 Docker 资源",
+        "必要时扩容"
+      ]
+    },
+    {
+      "id": "disk-006",
+      "reference": "磁盘满会导致数据库损坏：磁盘使用率过高的影响包括无法写入新数据、日志无法记录、应用崩溃、数据库损坏、系统性能下降，对应 HighDiskUsage 告警。",
+      "expected_facts": [
+        "数据库损坏是磁盘满的后果",
+        "无法写入新数据",
+        "应用崩溃",
+        "HighDiskUsage 告警"
+      ]
+    },
+    {
+      "id": "disk-007",
+      "reference": "排查 disk_full 需查询 ap-guangzhou 地域 system-metrics 日志主题，条件 disk_usage:>80 OR disk_full:true（示例语句 disk_usage > 80 OR filesystem:full），并查询 application-logs（No space left on device OR disk full）。",
+      "expected_facts": [
+        "system-metrics 日志主题",
+        "disk_full:true",
+        "地域 ap-guangzhou",
+        "application-logs 查询 No space left on device"
+      ]
+    },
+    {
+      "id": "disk-008",
+      "reference": "排查 inode 或磁盘占用过高：用 df -h 查看磁盘使用率、df -i 查看 inode 使用情况、du -sh 查看目录大小、find / -type f -size +1G 查找大文件；相关告警包括 InodeFull（inode 耗尽）、DiskIOHigh、DiskReadOnly、FileSystemError。",
+      "expected_facts": [
+        "df -h 查看磁盘使用率",
+        "df -i 查看 inode 使用",
+        "find 查找大文件",
+        "相关告警 InodeFull"
+      ]
+    },
+    {
+      "id": "svc-001",
+      "reference": "ServiceUnavailable 告警，告警级别为紧急，触发条件是服务健康检查失败或错误率超过 50%。",
+      "expected_facts": [
+        "告警名 ServiceUnavailable",
+        "告警级别紧急",
+        "健康检查失败或错误率超过 50%"
+      ]
+    },
+    {
+      "id": "svc-002",
+      "reference": "服务健康检查失败或错误率超过 50% 会触发 ServiceUnavailable 告警，告警级别为紧急。",
+      "expected_facts": [
+        "ServiceUnavailable 告警",
+        "告警级别紧急",
+        "错误率超过 50%",
+        "健康检查失败"
+      ]
+    },
+    {
+      "id": "svc-003",
+      "reference": "服务不可用的影响：用户无法访问服务、业务完全中断、可能造成经济损失、影响公司声誉，对应 ServiceUnavailable 告警（紧急级别）。",
+      "expected_facts": [
+        "用户无法访问服务",
+        "业务完全中断",
+        "经济损失",
+        "影响公司声誉",
+        "ServiceUnavailable 告警"
+      ]
+    },
+    {
+      "id": "svc-004",
+      "reference": "排查服务不可用需查询 ap-guangzhou 地域 application-logs 日志主题，时间范围最近 15 分钟，查询条件 level:ERROR OR level:FATAL OR status:500（示例 (level:ERROR OR level:FATAL) AND service_name:*）。",
+      "expected_facts": [
+        "application-logs 日志主题",
+        "最近 15 分钟",
+        "level:ERROR OR level:FATAL OR status:500",
+        "地域 ap-guangzhou"
+      ]
+    },
+    {
+      "id": "svc-005",
+      "reference": "服务挂了紧急排查：1) 获取当前时间；2) 查 application-logs（level:ERROR OR level:FATAL OR status:500）；3) 查 system-events（event:restart OR event:crash OR event:oom_kill）；4) 检查依赖服务（downstream_service OR database OR redis OR mq）。紧急流程：1 分钟内确认故障、启动应急、止损（摘除故障实例/启用备用服务）；5 分钟内快速定位并决策（修复/回滚/降级）；15 分钟内恢复服务；30 分钟内全面验证。",
+      "expected_facts": [
+        "查 application-logs ERROR/FATAL/500",
+        "查 system-events restart/crash/oom_kill",
+        "检查 database/redis/mq 等依赖",
+        "1 分钟内确认故障并止损",
+        "15 分钟内恢复服务"
+      ]
+    },
+    {
+      "id": "svc-006",
+      "reference": "健康检查失败会导致服务不可用，触发 ServiceUnavailable 告警（紧急级别），触发条件为服务健康检查失败或错误率超过 50%，影响包括用户无法访问服务、业务完全中断。",
+      "expected_facts": [
+        "健康检查失败触发 ServiceUnavailable",
+        "告警级别紧急",
+        "用户无法访问服务",
+        "业务完全中断"
+      ]
+    },
+    {
+      "id": "svc-007",
+      "reference": "ServiceUnavailable 告警级别为紧急，触发条件是服务健康检查失败或错误率超过 50%。",
+      "expected_facts": [
+        "告警名 ServiceUnavailable",
+        "告警级别紧急",
+        "健康检查失败或错误率超过 50%"
+      ]
+    },
+    {
+      "id": "slow-001",
+      "reference": "SlowResponse 告警，告警级别为警告，触发条件是 P99 响应时间持续 5 分钟超过 3 秒。",
+      "expected_facts": [
+        "告警名 SlowResponse",
+        "告警级别警告",
+        "P99 响应时间持续 5 分钟超过 3 秒"
+      ]
+    },
+    {
+      "id": "slow-002",
+      "reference": "P99 响应时间持续 5 分钟超过 3 秒触发 SlowResponse 告警（警告级别），属于服务响应时间过长告警处理方案的触发条件。",
+      "expected_facts": [
+        "SlowResponse 告警",
+        "告警级别警告",
+        "P99 持续 5 分钟超过 3 秒"
+      ]
+    },
+    {
+      "id": "slow-003",
+      "reference": "接口慢、一直超时的对应问题描述：服务响应时间持续超过阈值会导致用户体验下降、请求堆积、可能触发超时错误、影响下游服务，对应 SlowResponse 告警（警告级别，P99 持续 5 分钟超过 3 秒）。",
+      "expected_facts": [
+        "用户体验下降",
+        "请求堆积",
+        "触发超时错误",
+        "影响下游服务",
+        "SlowResponse 告警"
+      ]
+    },
+    {
+      "id": "slow-004",
+      "reference": "排查数据库慢查询：查询 ap-guangzhou 地域 database-slow-query 日志主题，条件 query_time:>1000；同时查 application-logs（response_time:>3000 OR slow_query:true）。处理：找出最慢 SQL、检查索引、查看执行计划（EXPLAIN）、临时优化，长期建立索引策略并考虑分库分表。",
+      "expected_facts": [
+        "database-slow-query 日志主题",
+        "query_time:>1000",
+        "找出最慢 SQL 并检查索引",
+        "查看执行计划 EXPLAIN"
+      ]
+    },
+    {
+      "id": "slow-005",
+      "reference": "排查 response_time 大于 3000：查询 ap-guangzhou 地域 application-logs 日志主题（最近 30 分钟，response_time:>3000 OR slow_query:true，示例 response_time > 3000 AND level:WARN），并查 database-slow-query（query_time:>1000）与 system-metrics 资源使用情况。",
+      "expected_facts": [
+        "application-logs 日志主题",
+        "response_time:>3000 OR slow_query:true",
+        "database-slow-query query_time:>1000",
+        "查 system-metrics 资源使用"
+      ]
+    },
+    {
+      "id": "slow-006",
+      "reference": "请求堆积影响下游属于响应时间过高的表现：服务响应时间持续超过阈值会导致用户体验下降、请求堆积、可能触发超时错误、影响下游服务。",
+      "expected_facts": [
+        "请求堆积",
+        "影响下游服务",
+        "可能触发超时错误",
+        "用户体验下降"
+      ]
+    },
+    {
+      "id": "slow-007",
+      "reference": "服务响应时间过长告警处理方案对应 SlowResponse 告警（警告级别），触发条件 P99 响应时间持续 5 分钟超过 3 秒，方案包含问题描述、排查步骤（application-logs、database-slow-query、system-metrics）、常见原因（数据库慢查询、外部 API 超时、代码性能、缓存问题、资源不足、网络问题）与紧急处理措施。",
+      "expected_facts": [
+        "SlowResponse 告警",
+        "告警级别警告",
+        "P99 持续 5 分钟超过 3 秒",
+        "常见原因包括数据库慢查询与外部 API 超时"
+      ]
+    },
+    {
+      "id": "mix-001",
+      "reference": "在 ap-guangzhou 查 CPU 监控日志：使用 query_logs 查询地域 ap-guangzhou、日志主题 system-metrics，查询语句 cpu_usage > 80 AND service_name:*，时间范围最近 30 分钟，可结合 level:ERROR OR cpu_usage:>80 条件定位 CPU 使用率过高的服务。",
+      "expected_facts": [
+        "地域 ap-guangzhou",
+        "system-metrics 日志主题",
+        "cpu_usage > 80",
+        "最近 30 分钟"
+      ]
+    },
+    {
+      "id": "mix-002",
+      "reference": "区分内存 OOM 与磁盘满：内存问题（HighMemoryUsage，内存使用率持续 5 分钟超过 85%）表现为频繁 GC、OOM 错误、应用崩溃重启、swap 频繁，查 system-metrics 的 memory_usage:>85 OR oom_kill:true 与 application-logs 的 OutOfMemoryError；磁盘问题（HighDiskUsage，>80% 警告 />90% 严重）表现为无法写入新数据、日志无法记录、数据库损坏，查 disk_usage > 80 OR filesystem:full 与 No space left on device。",
+      "expected_facts": [
+        "内存问题查 memory_usage 与 oom_kill",
+        "内存表现为频繁 GC/OOM/重启",
+        "磁盘问题查 disk_usage 与 disk_full",
+        "磁盘表现为无法写入/日志无法记录/数据库损坏",
+        "两者告警级别与阈值不同"
+      ]
+    },
+    {
+      "id": "none-001",
+      "reference": "知识库中没有火星基地氧气阀门检修规程相关内容，应明确说明知识库中没有足够信息，不能编造答案。",
+      "expected_facts": [
+        "知识库无相关资料",
+        "应明确说明无法回答",
+        "不能编造答案"
+      ]
+    },
+    {
+      "id": "none-002",
+      "reference": "知识库中没有量子冰箱压缩机更换相关内容，应明确说明知识库中没有足够信息，不能编造答案。",
+      "expected_facts": [
+        "知识库无相关资料",
+        "应明确说明无法回答",
+        "不能编造答案"
+      ]
+    },
+    {
+      "id": "multi-001",
+      "reference": "CPU 高排查：获取当前时间后查 ap-guangzhou system-metrics（cpu_usage > 80 AND service_name:*，最近 30 分钟），分析 CPU 消耗进程，再查 application-logs；内存高排查：查 system-metrics（memory_usage > 85 OR oom_kill:true），再查 application-logs（OutOfMemoryError OR GC overhead），分析 JVM 堆内存、GC 频率、内存泄漏与大对象分配。",
+      "expected_facts": [
+        "CPU：system-metrics cpu_usage > 80",
+        "CPU：分析消耗进程并查 application-logs",
+        "内存：memory_usage > 85 OR oom_kill:true",
+        "内存：查 OutOfMemoryError 与 GC overhead",
+        "内存：分析 JVM 堆内存与 GC 频率"
+      ]
+    },
+    {
+      "id": "multi-002",
+      "reference": "磁盘满看《磁盘使用率过高告警处理方案》的排查步骤：获取当前时间，查 system-metrics（disk_usage > 80 OR filesystem:full）与 application-logs（No space left on device OR disk full），分析目录占用、日志大小、临时文件与数据增长。服务不可用看《服务不可用告警处理方案》的排查步骤：查 application-logs（level:ERROR OR level:FATAL OR status:500），查 system-events（restart/crash/oom_kill），检查依赖服务（database/redis/mq）。",
+      "expected_facts": [
+        "磁盘：disk_usage > 80 OR filesystem:full",
+        "磁盘：application-logs No space left on device",
+        "服务不可用：ERROR/FATAL/status:500",
+        "服务不可用：system-events restart/crash/oom_kill",
+        "服务不可用：检查 database/redis/mq 依赖"
+      ]
+    },
+    {
+      "id": "multi-003",
+      "reference": "机器发烫（CPU 高）的问题描述：CPU 使用率持续超过 80% 会导致应用响应变慢、请求超时增加、系统负载过高、可能触发雪崩效应。内存打满的问题描述：内存使用率持续超过 85% 会导致频繁 GC、OOM 错误、应用崩溃或重启、swap 频繁性能急剧下降。",
+      "expected_facts": [
+        "CPU 超 80%：响应变慢、请求超时、负载过高",
+        "CPU 可能触发雪崩效应",
+        "内存超 85%：频繁 GC、OOM",
+        "内存导致崩溃重启与 swap 频繁"
+      ]
+    },
+    {
+      "id": "multi-004",
+      "reference": "接口超时（SlowResponse）的问题描述：响应时间持续超阈值导致用户体验下降、请求堆积、可能触发超时错误、影响下游服务。页面完全打不开（ServiceUnavailable）的问题描述：用户无法访问服务、业务完全中断、可能造成经济损失、影响公司声誉。",
+      "expected_facts": [
+        "接口超时：请求堆积、影响下游",
+        "接口超时：触发超时错误",
+        "页面打不开：用户无法访问服务",
+        "页面打不开：业务完全中断"
+      ]
+    },
+    {
+      "id": "multi-005",
+      "reference": "HighCPUUsage 与 HighMemoryUsage 两个告警名称：HighCPUUsage 级别严重，CPU 使用率持续 5 分钟超过 80%；HighMemoryUsage 级别严重，内存使用率持续 5 分钟超过 85%。",
+      "expected_facts": [
+        "HighCPUUsage 告警名",
+        "HighMemoryUsage 告警名",
+        "CPU 阈值 80%、内存阈值 85%",
+        "两者级别均为严重"
+      ]
+    },
+    {
+      "id": "multi-006",
+      "reference": "磁盘使用率过高的告警名称是 HighDiskUsage（警告 >80% / 严重 >90%），服务健康检查失败的告警名称是 ServiceUnavailable（紧急级别，触发条件为健康检查失败或错误率超过 50%）。",
+      "expected_facts": [
+        "HighDiskUsage 告警名",
+        "ServiceUnavailable 告警名",
+        "磁盘阈值 80%/90%",
+        "服务不可用触发条件为健康检查失败或错误率超 50%"
+      ]
+    }
+  ]
+}
