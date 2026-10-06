@@ -1,7 +1,5 @@
 package org.example.agent;
 
-import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.json.JsonMapper;
 import io.micrometer.observation.ObservationRegistry;
 import org.example.context.ContextAssembler;
 import org.example.context.ContextPackage;
@@ -10,13 +8,8 @@ import org.example.context.TokenEstimator;
 import org.example.conversation.ConversationExecutionCoordinator;
 import org.example.conversation.ConversationService;
 import org.example.conversation.ConversationTurn;
-import org.example.trajectory.JsonlTrajectoryStore;
-import org.example.trajectory.TrajectoryProperties;
-import org.example.trajectory.TrajectorySanitizer;
-import org.example.trajectory.TrajectoryService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.api.io.TempDir;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -37,8 +30,6 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.nio.file.Path;
-import java.nio.file.Files;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -50,9 +41,6 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class AgentExecutionServiceTest {
-
-    @TempDir
-    Path tempDir;
 
     @Test
     void modelBudgetStopsAdvisorLoopInBothTransports() throws Exception {
@@ -143,9 +131,7 @@ class AgentExecutionServiceTest {
                 when(conversations.beginTurn(anyString(), anyString())).thenAnswer(invocation ->
                         new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID()));
                 AtomicInteger toolCalls = new AtomicInteger();
-                TrajectoryProperties trajectories = new TrajectoryProperties();
-                trajectories.setEnabled(false);
-                AgentExecutionService service = newService(model, props, conversations, trajectories, toolCalls);
+                AgentExecutionService service = newService(model, props, conversations, toolCalls);
 
                 for (int request = 0; request < 2; request++) {
                     AgentExecutionResult result = service.execute(new AgentExecutionService.AgentExecutionRequest(
@@ -155,47 +141,6 @@ class AgentExecutionServiceTest {
                 }
                 assertEquals(6, rounds.get());
             }
-        }
-    }
-
-    @Test
-    void advisorRecordsEachRoundUsageAndToolEvidenceWithoutDoubleCounting() throws Exception {
-        for (boolean streaming : List.of(false, true)) {
-            ChatModel model = mock(ChatModel.class);
-            AtomicInteger rounds = new AtomicInteger();
-            java.util.function.Supplier<ChatResponse> reply = () -> {
-                boolean first = rounds.getAndIncrement() == 0;
-                AssistantMessage output = first
-                        ? AssistantMessage.builder().content("CHECKING").toolCalls(List.of(
-                                new AssistantMessage.ToolCall("tc-1", "function", "probeTool", "{}"))).build()
-                        : new AssistantMessage("FINAL");
-                return new ChatResponse(List.of(new Generation(output)), ChatResponseMetadata.builder()
-                        .usage(first ? new DefaultUsage(10, 3, 13) : new DefaultUsage(20, 5, 25)).build());
-            };
-            if (streaming) {
-                when(model.stream(any(Prompt.class))).thenAnswer(invocation -> Flux.just(reply.get()));
-            } else {
-                when(model.call(any(Prompt.class))).thenAnswer(invocation -> reply.get());
-            }
-            ConversationService conversations = mockConversations();
-            when(conversations.beginTurn(anyString(), anyString())).thenReturn(
-                    new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID()));
-            TrajectoryProperties props = new TrajectoryProperties();
-            props.setBaseDir(tempDir.resolve(Boolean.toString(streaming)).toString());
-            AgentExecutionService service = newService(model, new AgentProperties(), conversations, props, new AtomicInteger());
-            service.execute(new AgentExecutionService.AgentExecutionRequest(
-                    "probe-session", "check", streaming, AgentExecutionEvents.NOOP));
-
-            JsonMapper mapper = new JsonMapper();
-            Path log = new JsonlTrajectoryStore(mapper, props).pathForConversation("probe-session");
-            var events = Files.readAllLines(log).stream().map(mapper::readTree).toList();
-            assertEquals(2, events.stream().filter(event -> "model.usage".equals(event.path("type").asText())).count());
-            assertEquals(1, events.stream().filter(event -> "tool.result".equals(event.path("type").asText())).count());
-            var totals = events.get(events.size() - 1).path("payload");
-            assertEquals(2, totals.path("usageReports").asInt());
-            assertEquals(30, totals.path("promptTokens").asInt());
-            assertEquals(8, totals.path("completionTokens").asInt());
-            assertEquals(38, totals.path("totalTokens").asInt());
         }
     }
 
@@ -293,16 +238,13 @@ class AgentExecutionServiceTest {
             ChatModel model,
             AgentProperties props,
             ConversationService conversations) {
-        TrajectoryProperties trajectoryProps = new TrajectoryProperties();
-        trajectoryProps.setEnabled(false);
-        return newService(model, props, conversations, trajectoryProps, new AtomicInteger());
+        return newService(model, props, conversations, new AtomicInteger());
     }
 
     private static AgentExecutionService newService(
             ChatModel model,
             AgentProperties props,
             ConversationService conversations,
-            TrajectoryProperties trajectoryProps,
             AtomicInteger toolCalls) {
         when(model.getOptions()).thenReturn(OpenAiChatOptions.builder().model("offline-probe").build());
         ContextAssembler assembler = mock(ContextAssembler.class);
@@ -342,16 +284,11 @@ class AgentExecutionServiceTest {
                                 .build());
             }
         };
-        ObjectMapper mapper = JsonMapper.builder().findAndAddModules().build();
-        TrajectoryService trajectories = new TrajectoryService(
-                new JsonlTrajectoryStore(mapper, trajectoryProps),
-                new TrajectorySanitizer(mapper, trajectoryProps));
         return new AgentExecutionService(
                 conversations,
                 new ConversationExecutionCoordinator(),
                 assembler,
                 factory,
-                trajectories,
                 props,
                 new ContextProperties(),
                 new TokenEstimator(),

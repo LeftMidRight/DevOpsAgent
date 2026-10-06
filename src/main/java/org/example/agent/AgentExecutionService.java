@@ -9,9 +9,6 @@ import org.example.conversation.ConversationExecutionCoordinator;
 import org.example.conversation.ConversationLockTimeoutException;
 import org.example.conversation.ConversationService;
 import org.example.conversation.ConversationTurn;
-import org.example.trajectory.TrajectoryRun;
-import org.example.trajectory.TrajectoryService;
-import org.example.trajectory.TrajectoryModelHook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -31,11 +28,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 统一执行入口：
- * 加锁 → 建轮次 → 组装上下文 → 单 Agent 执行（含工具循环）→
- * 提交持久化 → 轨迹收尾。
+ * 加锁 → 建轮次 → 组装上下文 → 单 Agent 执行（含工具循环）→ 提交持久化。
  * 成功前发生终止时轮次标为 FAILED，不进入未来上下文。
  */
 @Service
@@ -47,7 +44,6 @@ public class AgentExecutionService {
     private final ConversationExecutionCoordinator conversationCoordinator;
     private final ContextAssembler contextAssembler;
     private final UnifiedAgentFactory agentFactory;
-    private final TrajectoryService trajectoryService;
     private final AgentProperties properties;
     private final ContextProperties contextProperties;
     private final TokenEstimator tokenEstimator;
@@ -59,7 +55,6 @@ public class AgentExecutionService {
             ConversationExecutionCoordinator conversationCoordinator,
             ContextAssembler contextAssembler,
             UnifiedAgentFactory agentFactory,
-            TrajectoryService trajectoryService,
             AgentProperties properties,
             ContextProperties contextProperties,
             TokenEstimator tokenEstimator,
@@ -68,7 +63,6 @@ public class AgentExecutionService {
         this.conversationCoordinator = conversationCoordinator;
         this.contextAssembler = contextAssembler;
         this.agentFactory = agentFactory;
-        this.trajectoryService = trajectoryService;
         this.properties = properties;
         this.contextProperties = contextProperties;
         this.tokenEstimator = tokenEstimator;
@@ -111,13 +105,10 @@ public class AgentExecutionService {
         try (ConversationExecutionCoordinator.Lease ignored = conversationCoordinator.acquire(conversationId, deadline)) {
             ConversationTurn turn = conversationService.beginTurn(
                     conversationId, request.question());
-            TrajectoryRun trajectoryRun = trajectoryService.startRun(
-                    conversationId, turn.requestId(),
-                    request.streaming() ? "stream" : "sync", request.question());
+            UUID runId = UUID.randomUUID();
             AgentRunContext runContext = new AgentRunContext(
-                    trajectoryRun.runId(), properties.getBudget(), events, deadline, cancellation);
-            events.onMeta(conversationId, turn.requestId().toString(),
-                    trajectoryRun.runId().toString());
+                    runId, properties.getBudget(), events, deadline, cancellation);
+            events.onMeta(conversationId, turn.requestId().toString(), runId.toString());
 
             String reasoning = null;
             try {
@@ -126,18 +117,16 @@ public class AgentExecutionService {
                 ChatModel chatModel = agentFactory.createChatModel(policy);
 
                 ContextPackage context = contextAssembler.assemble(conversationId, turn.requestId(), chatModel);
-                trajectoryRun.recordContext(context);
                 logger.info("统一执行开始 - SessionId: {}, runId: {}, 消息数: {}",
-                        conversationId, trajectoryRun.runId(), context.messages().size());
+                        conversationId, runId, context.messages().size());
 
                 PreparedAgent agent = agentFactory.createAgent(policy, chatModel, runContext);
                 BudgetEnforcementHook budgetHook = new BudgetEnforcementHook(
                         runContext, tokenEstimator, messageTokenBudget());
-                TrajectoryModelHook trajectoryHook = trajectoryRun.captureHook(context.messages());
 
                 ModelReply modelReply = request.streaming()
-                        ? executeStreaming(agent, context.messages(), events, trajectoryRun, runContext, budgetHook, trajectoryHook)
-                        : callAndGuard(agent, context.messages(), trajectoryRun, runContext, budgetHook, trajectoryHook);
+                        ? executeStreaming(agent, context.messages(), events, runContext, budgetHook)
+                        : callAndGuard(agent, context.messages(), runContext, budgetHook);
 
                 runContext.rejectLateResult();
 
@@ -147,20 +136,20 @@ public class AgentExecutionService {
                 String finalAnswer = rawAnswer;
 
                 return commitSuccess(
-                        request, events, conversationId, turn, trajectoryRun, runContext, finalAnswer, reasoning);
+                        request, events, conversationId, turn, runId, runContext, finalAnswer, reasoning);
             } catch (BudgetExceededException e) {
                 if (e.allowsPartialResult() && !runContext.isTerminated() && !runContext.isDeadlineExceeded()) {
-                    logger.warn("预算耗尽，交付部分结果 - runId: {}, reason: {}", trajectoryRun.runId(), e.getMessage());
+                    logger.warn("预算耗尽，交付部分结果 - runId: {}, reason: {}", runId, e.getMessage());
                     String partial = "任务因预算限制未完成：" + e.getMessage();
                     return commitSuccess(
-                            request, events, conversationId, turn, trajectoryRun, runContext, partial, reasoning);
+                            request, events, conversationId, turn, runId, runContext, partial, reasoning);
                 }
                 runContext.terminate();
-                failSafely(turn, trajectoryRun, e);
+                failSafely(turn, e);
                 throw e;
             } catch (Exception e) {
                 runContext.terminate();
-                failSafely(turn, trajectoryRun, e);
+                failSafely(turn, e);
                 throw e;
             }
         } catch (ConversationLockTimeoutException e) {
@@ -173,32 +162,29 @@ public class AgentExecutionService {
             AgentExecutionEvents events,
             String conversationId,
             ConversationTurn turn,
-            TrajectoryRun trajectoryRun,
+            UUID runId,
             AgentRunContext runContext,
             String finalAnswer,
             String reasoning) {
         conversationService.completeTurn(turn, finalAnswer);
-        trajectoryRun.complete(finalAnswer);
         if (reasoning != null && !reasoning.isBlank()) {
             events.onReasoningFinal(reasoning);
         }
         events.onFinalAnswer(finalAnswer);
         logger.info("统一执行完成 - SessionId: {}, runId: {}, 答案长度: {}, 推理长度: {}, 模型调用: {}, 工具调用: {}",
-                conversationId, trajectoryRun.runId(), finalAnswer.length(),
+                conversationId, runId, finalAnswer.length(),
                 reasoning == null ? 0 : reasoning.length(),
                 runContext.modelCalls(), runContext.toolCalls());
         return new AgentExecutionResult(
-                conversationId, turn.requestId(), trajectoryRun.runId(), finalAnswer, reasoning);
+                conversationId, turn.requestId(), runId, finalAnswer, reasoning);
     }
 
     private ModelReply callAndGuard(
             PreparedAgent agent,
             List<Message> messages,
-            TrajectoryRun trajectoryRun,
             AgentRunContext runContext,
-            BudgetEnforcementHook budgetHook,
-            TrajectoryModelHook trajectoryHook) {
-        ChatResponse response = runUntilAnswer(agent, messages, trajectoryRun, runContext, budgetHook, trajectoryHook, null, null);
+            BudgetEnforcementHook budgetHook) {
+        ChatResponse response = runUntilAnswer(agent, messages, runContext, budgetHook, null, null);
         runContext.rejectLateResult();
         AssistantMessage output = response.getResult().getOutput();
         return new ModelReply(output.getText(), ReasoningContentExtractor.extract(output));
@@ -212,13 +198,11 @@ public class AgentExecutionService {
             PreparedAgent agent,
             List<Message> messages,
             AgentExecutionEvents events,
-            TrajectoryRun trajectoryRun,
             AgentRunContext runContext,
-            BudgetEnforcementHook budgetHook,
-            TrajectoryModelHook trajectoryHook) {
+            BudgetEnforcementHook budgetHook) {
         StreamingAnswerCollector collector = new StreamingAnswerCollector();
         ChatResponse response = runUntilAnswer(
-                agent, messages, trajectoryRun, runContext, budgetHook, trajectoryHook, events, collector);
+                agent, messages, runContext, budgetHook, events, collector);
         runContext.rejectLateResult();
         String authoritative = collector.authoritativeAnswer();
         if (authoritative == null || authoritative.isBlank()) {
@@ -230,10 +214,8 @@ public class AgentExecutionService {
     private ChatResponse runUntilAnswer(
             PreparedAgent agent,
             List<Message> contextMessages,
-            TrajectoryRun trajectoryRun,
             AgentRunContext runContext,
             BudgetEnforcementHook budgetHook,
-            TrajectoryModelHook trajectoryHook,
             AgentExecutionEvents events,
             StreamingAnswerCollector collector) {
         List<Message> history = new ArrayList<>();
@@ -243,7 +225,7 @@ public class AgentExecutionService {
         ChatClient client = ChatClient.builder(agent.chatModel(), observationRegistry, null, null)
                 .defaultAdvisors(
                         ToolCallingAdvisor.builder().toolCallingManager(toolCallingManager).build(),
-                        new RunModelAdvisor(runContext, budgetHook, trajectoryRun, trajectoryHook, events, collector))
+                        new RunModelAdvisor(runContext, budgetHook, events, collector))
                 .build();
         if (collector == null) {
             return client.prompt(prompt).call().chatResponse();
@@ -274,13 +256,12 @@ public class AgentExecutionService {
         return Math.max(1, budget);
     }
 
-    private void failSafely(ConversationTurn turn, TrajectoryRun trajectoryRun, Exception cause) {
+    private void failSafely(ConversationTurn turn, Exception cause) {
         try {
             conversationService.failTurn(turn);
         } catch (Exception persistenceError) {
             logger.error("标记失败会话轮次时发生异常 - RequestId: {}", turn.requestId(), persistenceError);
             cause.addSuppressed(persistenceError);
         }
-        trajectoryRun.fail(cause);
     }
 }

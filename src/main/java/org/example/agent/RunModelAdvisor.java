@@ -1,7 +1,5 @@
 package org.example.agent;
 
-import org.example.trajectory.TrajectoryModelHook;
-import org.example.trajectory.TrajectoryRun;
 import org.springframework.ai.chat.client.ChatClientMessageAggregator;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -11,30 +9,23 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisor;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.model.ChatResponse;
 import reactor.core.publisher.Flux;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 
-/** 请求独占的 Advisor：对工具循环的每次模型调用执行预算检查、轨迹记录和增量输出。 */
+/** 请求独占的 Advisor：对工具循环的每次模型调用执行预算检查与增量输出。 */
 final class RunModelAdvisor implements CallAdvisor, StreamAdvisor {
 
     private final AgentRunContext run;
     private final BudgetEnforcementHook budget;
-    private final TrajectoryRun trajectory;
-    private final TrajectoryModelHook messages;
     private final AgentExecutionEvents events;
     private final StreamingAnswerCollector collector;
 
-    RunModelAdvisor(AgentRunContext run, BudgetEnforcementHook budget, TrajectoryRun trajectory,
-                    TrajectoryModelHook messages, AgentExecutionEvents events, StreamingAnswerCollector collector) {
+    RunModelAdvisor(AgentRunContext run, BudgetEnforcementHook budget,
+                    AgentExecutionEvents events, StreamingAnswerCollector collector) {
         this.run = run;
         this.budget = budget;
-        this.trajectory = trajectory;
-        this.messages = messages;
         this.events = events;
         this.collector = collector;
     }
@@ -53,7 +44,7 @@ final class RunModelAdvisor implements CallAdvisor, StreamAdvisor {
     public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
         before(request);
         ChatClientResponse response = chain.nextCall(request);
-        after(request, response.chatResponse(), response.chatResponse().getResult().getOutput());
+        run.rejectLateResult();
         return response;
     }
 
@@ -99,7 +90,7 @@ final class RunModelAdvisor implements CallAdvisor, StreamAdvisor {
                     output = AssistantMessage.builder().content(output.getText())
                             .properties(metadata).toolCalls(output.getToolCalls()).build();
                 }
-                after(request, chat, output);
+                run.rejectLateResult();
                 collector.onModelFinished(output.getText());
                 collector.onReasoningFinished(output);
             });
@@ -108,14 +99,5 @@ final class RunModelAdvisor implements CallAdvisor, StreamAdvisor {
 
     private void before(ChatClientRequest request) {
         budget.beforeModel(request.prompt().getInstructions());
-        messages.beforeModel(request.prompt().getInstructions());
-    }
-
-    private void after(ChatClientRequest request, ChatResponse response, AssistantMessage output) {
-        run.rejectLateResult();
-        trajectory.recordUsage("chat", "model", response.getMetadata().getUsage());
-        List<Message> history = new ArrayList<>(request.prompt().getInstructions());
-        history.add(output);
-        messages.afterModel(history);
     }
 }

@@ -119,14 +119,6 @@ context:
   recent-message-tokens: 8000
   compression-trigger-tokens: 8000
 
-# Agent 运行轨迹：每个会话一个 append-only JSONL 文件。
-trajectory:
-  enabled: true
-  base-dir: ${TRAJECTORY_DIR:./data/trajectories}
-  max-content-chars: 100000
-  # 开启后每个事件都会 fsync，审计更强但写入延迟更高。
-  force-on-write: false
-
 # Prometheus 配置
 prometheus:
   base-url: http://localhost:9090
