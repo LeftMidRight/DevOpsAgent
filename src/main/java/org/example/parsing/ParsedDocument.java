@@ -1,6 +1,6 @@
 package org.example.parsing;
 
-import java.util.List;
+import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 
@@ -10,6 +10,11 @@ public record ParsedDocument(
         String sourceType,
         String parser,
         String parserVersion,
-        Map<String, Object> metadata,
-        List<ParsedBlock> blocks
-) {}
+        String content,
+        Map<String, Object> metadata
+) {
+    public ParsedDocument {
+        metadata = metadata == null ? Collections.emptyMap() : Map.copyOf(metadata);
+        content = content == null ? "" : content;
+    }
+}

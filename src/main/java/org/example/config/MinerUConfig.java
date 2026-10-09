@@ -1,6 +1,6 @@
 package org.example.config;
 
-import org.example.parsing.mineru.MinerUClient;
+import org.example.parsing.mineru.MinerUAgentClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -14,7 +14,7 @@ public class MinerUConfig {
 
     @Bean
     @ConditionalOnProperty(prefix = "mineru", name = "enabled", havingValue = "true")
-    RestClient minerURestClient(MinerUProperties properties) {
+    RestClient minerUAgentRestClient(MinerUProperties properties) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(properties.getConnectTimeout());
         factory.setReadTimeout(properties.getReadTimeout());
@@ -30,7 +30,7 @@ public class MinerUConfig {
 
     @Bean
     @ConditionalOnProperty(prefix = "mineru", name = "enabled", havingValue = "true")
-    MinerUClient minerUClient(MinerUProperties properties, RestClient minerURestClient) {
-        return new MinerUClient(properties, minerURestClient);
+    MinerUAgentClient minerUAgentClient(MinerUProperties properties, RestClient minerUAgentRestClient) {
+        return new MinerUAgentClient(properties, minerUAgentRestClient);
     }
 }

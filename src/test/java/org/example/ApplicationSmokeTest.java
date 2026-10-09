@@ -15,8 +15,9 @@ import java.net.http.HttpResponse;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "spring.ai.mcp.client.enabled=false", "prometheus.mock-enabled=true",
-        "prometheus.base-url=http://127.0.0.1:9090",
+        "spring.ai.mcp.client.enabled=false",
+        "observability.prometheus.base-url=http://127.0.0.1:9090",
+        "observability.loki.base-url=http://127.0.0.1:3100",
         "agent.model=doubao-test",
         "management.endpoints.web.exposure.include=health,prometheus"
 })

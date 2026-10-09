@@ -34,6 +34,9 @@ class RunEvidenceAnalyzerTest {
     void classify_explicitFailureFields() {
         assertEquals(EvidenceStatus.ERROR, RunEvidenceAnalyzer.classify("{\"success\":false,\"error\":\"boom\"}"));
         assertEquals(EvidenceStatus.EMPTY, RunEvidenceAnalyzer.classify("{\"alerts\":[]}"));
+        assertEquals(EvidenceStatus.ERROR, RunEvidenceAnalyzer.classify("{\"status\":\"query_error\",\"success\":false}"));
+        assertEquals(EvidenceStatus.EMPTY, RunEvidenceAnalyzer.classify("{\"status\":\"no_data\",\"service\":\"payment-service\"}"));
+        assertEquals(EvidenceStatus.SUCCESS, RunEvidenceAnalyzer.classify("{\"status\":\"target_down\",\"service\":\"order-service\"}"));
     }
 
     @Test

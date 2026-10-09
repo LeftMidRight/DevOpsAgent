@@ -62,10 +62,6 @@ public final class AgentRunContext {
         return events;
     }
 
-    public Instant deadline() {
-        return deadline;
-    }
-
     public Duration remaining() {
         Duration left = Duration.between(Instant.now(), deadline);
         return left.isNegative() ? Duration.ZERO : left;
@@ -103,10 +99,6 @@ public final class AgentRunContext {
      * 在每次模型调用前检查并计数。超过预算、耗时或任务已终止时抛出异常中断循环。
      */
     public void checkModelBudget() {
-        checkModelBudget(false);
-    }
-
-    public void checkModelBudget(boolean reportPhase) {
         if (cancellation.isCancelled() || terminated.get()) {
             throw new BudgetExceededException("任务已终止，停止后续模型调用", BudgetExceededException.Kind.CANCELLED);
         }
@@ -122,12 +114,6 @@ public final class AgentRunContext {
                     "模型调用次数超过上限 " + limit, BudgetExceededException.Kind.MODEL_CALLS);
         }
         modelCalls.incrementAndGet();
-    }
-
-    /** 报告修正等额外模型调用前的预算检查（不计数，由调用方随后走 checkModelBudget） */
-    public boolean canAffordModelCall() {
-        return !isTerminated() && !isDeadlineExceeded()
-                && modelCalls.get() < budget.getMaxModelCalls();
     }
 
     /**
@@ -168,11 +154,6 @@ public final class AgentRunContext {
     /**
      * 为一次真实工具调用登记证据并分配本轮证据 ID。
      */
-    public RunEvidence addEvidence(String toolName, String source, String arguments, String rawResult) {
-        List<RunEvidence> added = addEvidences(toolName, source, arguments, rawResult);
-        return added.get(0);
-    }
-
     public List<RunEvidence> addEvidences(String toolName, String source, String arguments, String rawResult) {
         List<RunEvidence> added = new ArrayList<>();
         Instant calledAt = Instant.now();
@@ -198,10 +179,6 @@ public final class AgentRunContext {
 
     public List<RunEvidence> evidences() {
         return List.copyOf(evidences);
-    }
-
-    public RunEvidence findEvidence(String id) {
-        return evidences.stream().filter(e -> e.id().equals(id)).findFirst().orElse(null);
     }
 
     private static String streakKey(String toolName, String normalizedArguments) {

@@ -6,8 +6,8 @@ import org.example.config.VolcengineProperties;
 import org.example.config.VolcengineModelConfig;
 import org.example.agent.tool.DateTimeTools;
 import org.example.agent.tool.InternalDocsTools;
-import org.example.agent.tool.QueryLogsTools;
-import org.example.agent.tool.QueryMetricsTools;
+import org.example.agent.tool.LokiTools;
+import org.example.agent.tool.PrometheusTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
@@ -16,13 +16,11 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,8 +45,8 @@ public class UnifiedAgentFactory {
     private final VolcengineProperties volcengineProperties;
     private final DateTimeTools dateTimeTools;
     private final InternalDocsTools internalDocsTools;
-    private final QueryMetricsTools queryMetricsTools;
-    private final ObjectProvider<QueryLogsTools> queryLogsTools;
+    private final PrometheusTools prometheusTools;
+    private final LokiTools lokiTools;
     private final ToolCallbackProvider mcpToolProvider;
 
     public UnifiedAgentFactory(
@@ -56,8 +54,8 @@ public class UnifiedAgentFactory {
             VolcengineProperties volcengineProperties,
             DateTimeTools dateTimeTools,
             InternalDocsTools internalDocsTools,
-            QueryMetricsTools queryMetricsTools,
-            ObjectProvider<QueryLogsTools> queryLogsTools,
+            PrometheusTools prometheusTools,
+            LokiTools lokiTools,
             @Autowired(required = false) @Qualifier("mcpAsyncToolCallbacks") ToolCallbackProvider mcpToolProvider,
             ObservationRegistry observationRegistry,
             MeterRegistry meterRegistry) {
@@ -67,8 +65,8 @@ public class UnifiedAgentFactory {
         this.volcengineProperties = volcengineProperties;
         this.dateTimeTools = dateTimeTools;
         this.internalDocsTools = internalDocsTools;
-        this.queryMetricsTools = queryMetricsTools;
-        this.queryLogsTools = queryLogsTools;
+        this.prometheusTools = prometheusTools;
+        this.lokiTools = lokiTools;
         this.mcpToolProvider = mcpToolProvider != null ? mcpToolProvider : NO_MCP_TOOLS;
     }
 
@@ -142,7 +140,8 @@ public class UnifiedAgentFactory {
         List<ToolCallback> wrapped = new ArrayList<>();
         for (Map.Entry<String, ToolCallback> entry : byName.entrySet()) {
             String source = isLocalTool(entry.getKey()) ? "local" : "mcp";
-            wrapped.add(new EvidenceCollectingToolCallback(entry.getValue(), runContext, source));
+            wrapped.add(new EvidenceCollectingToolCallback(
+                    entry.getValue(), runContext, source, observationRegistry));
         }
         logger.info("统一工具注册完成 - 共 {} 个工具: {}", wrapped.size(),
                 wrapped.stream().map(t -> t.getToolDefinition().name()).toList());
@@ -150,11 +149,13 @@ public class UnifiedAgentFactory {
     }
 
     private ToolCallback[] localToolCallbacks() {
-        List<Object> toolObjects = new ArrayList<>(
-                Arrays.asList(dateTimeTools, internalDocsTools, queryMetricsTools));
-        QueryLogsTools logsTools = queryLogsTools.getIfAvailable();
-        if (logsTools != null) {
-            toolObjects.add(logsTools);
+        List<Object> toolObjects = new ArrayList<>();
+        addTool(toolObjects, dateTimeTools);
+        addTool(toolObjects, internalDocsTools);
+        addTool(toolObjects, prometheusTools);
+        addTool(toolObjects, lokiTools);
+        if (toolObjects.isEmpty()) {
+            return new ToolCallback[0];
         }
         return MethodToolCallbackProvider.builder()
                 .toolObjects(toolObjects.toArray())
@@ -162,11 +163,16 @@ public class UnifiedAgentFactory {
                 .getToolCallbacks();
     }
 
+    private static void addTool(List<Object> toolObjects, Object tool) {
+        if (tool != null) {
+            toolObjects.add(tool);
+        }
+    }
+
     private boolean isLocalTool(String toolName) {
         return DateTimeTools.TOOL_GET_CURRENT_DATETIME.equals(toolName)
                 || InternalDocsTools.TOOL_QUERY_INTERNAL_DOCS.equals(toolName)
-                || QueryMetricsTools.TOOL_QUERY_PROMETHEUS_ALERTS.equals(toolName)
-                || QueryLogsTools.TOOL_QUERY_LOGS.equals(toolName)
-                || QueryLogsTools.TOOL_GET_AVAILABLE_LOG_TOPICS.equals(toolName);
+                || PrometheusTools.TOOL_NAMES.contains(toolName)
+                || LokiTools.QUERY_LOGS.equals(toolName);
     }
 }

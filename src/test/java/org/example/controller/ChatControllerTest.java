@@ -3,7 +3,7 @@ package org.example.controller;
 import org.example.dto.ChatAnswer;
 import org.example.dto.ChatRequest;
 import org.example.dto.Result;
-import org.example.controller.support.AgentSseStreamer;
+import org.example.controller.AgentSseStreamer;
 import org.example.service.ChatApplicationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

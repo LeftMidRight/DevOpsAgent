@@ -114,6 +114,15 @@ class DevOpsAgentApp {
         this.kbDocumentList = document.getElementById('kbDocumentList');
         this.kbDocumentCount = document.getElementById('kbDocumentCount');
         this.kbChunkCount = document.getElementById('kbChunkCount');
+        this.kbBrowser = document.getElementById('kbBrowser');
+        this.kbDetail = document.getElementById('kbDetail');
+        this.kbDetailBack = document.getElementById('kbDetailBack');
+        this.kbDetailTitle = document.getElementById('kbDetailTitle');
+        this.kbDetailMeta = document.getElementById('kbDetailMeta');
+        this.kbDetailSource = document.getElementById('kbDetailSource');
+        this.kbDetailChunks = document.getElementById('kbDetailChunks');
+        this.kbTabSource = document.getElementById('kbTabSource');
+        this.kbTabChunks = document.getElementById('kbTabChunks');
         this.modeSelectorBtn = document.getElementById('modeSelectorBtn');
         this.modeDropdown = document.getElementById('modeDropdown');
         this.currentModeText = document.getElementById('currentModeText');
@@ -195,9 +204,19 @@ class DevOpsAgentApp {
         if (this.kbRefreshBtn) {
             this.kbRefreshBtn.addEventListener('click', () => this.loadKnowledgeBaseDocuments());
         }
+        if (this.kbDetailBack) {
+            this.kbDetailBack.addEventListener('click', () => this.closeKnowledgeDocument());
+        }
+        if (this.kbTabSource) {
+            this.kbTabSource.addEventListener('click', () => this.showKnowledgeTab('source'));
+        }
+        if (this.kbTabChunks) {
+            this.kbTabChunks.addEventListener('click', () => this.showKnowledgeTab('chunks'));
+        }
     }
 
     showKnowledgeBase() {
+        this.closeKnowledgeDocument();
         this.switchView('knowledge');
         this.loadKnowledgeBaseDocuments();
     }
@@ -295,10 +314,12 @@ class DevOpsAgentApp {
             const row = document.createElement('tr');
 
             const nameCell = document.createElement('td');
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'kb-file-name';
-            nameSpan.textContent = doc.fileName || '';
-            nameCell.appendChild(nameSpan);
+            const nameButton = document.createElement('button');
+            nameButton.className = 'kb-file-name';
+            nameButton.type = 'button';
+            nameButton.textContent = doc.fileName || '';
+            nameButton.addEventListener('click', () => this.openKnowledgeDocument(doc.id, doc.fileName));
+            nameCell.appendChild(nameButton);
 
             const extCell = document.createElement('td');
             const badge = document.createElement('span');
@@ -353,6 +374,124 @@ class DevOpsAgentApp {
             row.appendChild(timeCell);
             row.appendChild(actionCell);
             this.kbDocumentList.appendChild(row);
+        });
+    }
+
+    closeKnowledgeDocument() {
+        if (this.kbDetail) {
+            this.kbDetail.classList.add('kb-hidden');
+        }
+        if (this.kbBrowser) {
+            this.kbBrowser.classList.remove('kb-hidden');
+        }
+    }
+
+    showKnowledgeTab(tab) {
+        const source = tab !== 'chunks';
+        if (this.kbTabSource) {
+            this.kbTabSource.classList.toggle('active', source);
+        }
+        if (this.kbTabChunks) {
+            this.kbTabChunks.classList.toggle('active', !source);
+        }
+        if (this.kbDetailSource) {
+            this.kbDetailSource.classList.toggle('kb-hidden', !source);
+        }
+        if (this.kbDetailChunks) {
+            this.kbDetailChunks.classList.toggle('kb-hidden', source);
+        }
+    }
+
+    async openKnowledgeDocument(id, fileName) {
+        if (!this.kbDetail || !id) {
+            return;
+        }
+        if (this.kbBrowser) {
+            this.kbBrowser.classList.add('kb-hidden');
+        }
+        this.kbDetail.classList.remove('kb-hidden');
+        if (this.kbDetailTitle) {
+            this.kbDetailTitle.textContent = fileName || '';
+        }
+        if (this.kbDetailMeta) {
+            this.kbDetailMeta.textContent = '正在加载...';
+        }
+        this.showKnowledgeTab('source');
+        this.kbDetailSource.replaceChildren();
+        this.kbDetailChunks.replaceChildren();
+
+        try {
+            const [preview, chunks] = await Promise.all([
+                this.fetchKnowledgeJson(`${this.apiBaseUrl}/knowledge-base/documents/${encodeURIComponent(id)}`),
+                this.fetchKnowledgeJson(`${this.apiBaseUrl}/knowledge-base/documents/${encodeURIComponent(id)}/chunks`)
+            ]);
+            this.renderKnowledgePreview(preview);
+            this.renderKnowledgeChunks(chunks);
+        } catch (error) {
+            if (this.kbDetailMeta) {
+                this.kbDetailMeta.textContent = '';
+            }
+            const message = document.createElement('p');
+            message.className = 'kb-detail-empty';
+            message.textContent = error.message || '加载失败';
+            this.kbDetailSource.replaceChildren(message);
+        }
+    }
+
+    async fetchKnowledgeJson(url) {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP错误: ${response.status}`);
+        }
+        const data = await response.json();
+        if (!(data.code === 200 || data.message === 'success')) {
+            throw new Error(data.message || '加载失败');
+        }
+        return data.data;
+    }
+
+    renderKnowledgePreview(preview) {
+        const kindLabel = preview && preview.previewKind === 'parsed' ? '解析后的 Markdown' : '原文';
+        if (this.kbDetailMeta) {
+            this.kbDetailMeta.textContent = preview && preview.previewAvailable ? kindLabel : '';
+        }
+        this.kbDetailSource.replaceChildren();
+        if (!preview || !preview.previewAvailable) {
+            const message = document.createElement('p');
+            message.className = 'kb-detail-empty';
+            message.textContent = (preview && preview.message) || '暂时无法预览';
+            this.kbDetailSource.appendChild(message);
+            return;
+        }
+        const text = document.createElement('pre');
+        text.className = 'kb-source-text';
+        text.textContent = preview.content || '';
+        this.kbDetailSource.appendChild(text);
+    }
+
+    renderKnowledgeChunks(chunks) {
+        this.kbDetailChunks.replaceChildren();
+        const items = Array.isArray(chunks) ? chunks : [];
+        if (items.length === 0) {
+            const message = document.createElement('p');
+            message.className = 'kb-detail-empty';
+            message.textContent = '尚未分块，请先点击「分块」。';
+            this.kbDetailChunks.appendChild(message);
+            return;
+        }
+        items.forEach((chunk) => {
+            const card = document.createElement('article');
+            card.className = 'kb-chunk-card';
+            const heading = document.createElement('h3');
+            const index = Number.isInteger(chunk.chunkIndex) ? chunk.chunkIndex + 1 : '';
+            const title = chunk.title ? ` ${chunk.title}` : '';
+            heading.textContent = `第 ${index} 块${title}`;
+            const text = document.createElement('pre');
+            text.className = 'kb-chunk-text';
+            text.textContent = chunk.content || '';
+            card.appendChild(heading);
+            card.appendChild(text);
+            this.kbDetailChunks.appendChild(card);
         });
     }
 

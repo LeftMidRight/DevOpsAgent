@@ -39,6 +39,14 @@
     {"id": "slow-006", "query": "请求堆积影响下游", "relevant": [{"file_name": "slow_response.md", "title_contains": "问题描述"}]},
     {"id": "slow-007", "query": "服务响应时间过长告警", "relevant": [{"file_name": "slow_response.md", "title_contains": "服务响应时间过长告警处理方案"}]},
     {"id": "mix-001", "query": "ap-guangzhou 查 CPU 监控日志", "relevant": [{"file_name": "cpu_high_usage.md", "title_contains": "排查步骤"}]},
-    {"id": "mix-002", "query": "内存OOM还是磁盘满怎么区分", "relevant": [{"file_name": "memory_high_usage.md", "title_contains": "问题描述"}]}
+    {"id": "mix-002", "query": "内存OOM还是磁盘满怎么区分", "relevant": [{"file_name": "memory_high_usage.md", "title_contains": "问题描述"}]},
+    {"id": "none-001", "query": "火星基地氧气阀门检修规程", "relevant": [], "no_result": true},
+    {"id": "none-002", "query": "如何给量子冰箱更换压缩机", "relevant": [], "no_result": true},
+    {"id": "multi-001", "query": "CPU 高和内存高分别怎么排查", "relevant": [{"file_name": "cpu_high_usage.md", "title_contains": "排查步骤"}, {"file_name": "memory_high_usage.md", "title_contains": "排查步骤"}]},
+    {"id": "multi-002", "query": "磁盘满和服务不可用分别看哪份手册的排查步骤", "relevant": [{"file_name": "disk_high_usage.md", "title_contains": "排查步骤"}, {"file_name": "service_unavailable.md", "title_contains": "排查步骤"}]},
+    {"id": "multi-003", "query": "机器发烫并且内存也打满了，问题描述在哪", "relevant": [{"file_name": "cpu_high_usage.md", "title_contains": "问题描述"}, {"file_name": "memory_high_usage.md", "title_contains": "问题描述"}]},
+    {"id": "multi-004", "query": "接口超时而且页面完全打不开，要看哪些问题描述", "relevant": [{"file_name": "slow_response.md", "title_contains": "问题描述"}, {"file_name": "service_unavailable.md", "title_contains": "问题描述"}]},
+    {"id": "multi-005", "query": "HighCPUUsage 和 HighMemoryUsage 告警名称", "relevant": [{"file_name": "cpu_high_usage.md", "title_contains": "告警名称"}, {"file_name": "memory_high_usage.md", "title_contains": "告警名称"}]},
+    {"id": "multi-006", "query": "磁盘使用率过高和服务健康检查失败的告警名称", "relevant": [{"file_name": "disk_high_usage.md", "title_contains": "告警名称"}, {"file_name": "service_unavailable.md", "title_contains": "告警名称"}]}
   ]
 }

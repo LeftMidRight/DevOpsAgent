@@ -2,8 +2,10 @@ package org.example.service;
 
 import org.example.config.RetrievalProperties;
 import org.example.repository.ChunkRepository;
+import org.example.retrieval.Bm25CorpusStats;
 import org.example.retrieval.Bm25Index;
 import org.example.retrieval.ChunkRecord;
+import org.example.retrieval.ChunkReranker;
 import org.example.retrieval.ChineseTokenizer;
 import org.example.retrieval.RetrievedChunk;
 import org.example.retrieval.RrfFusion;
@@ -26,19 +28,26 @@ public class HybridRetrievalService {
     private final ChineseTokenizer chineseTokenizer;
     private final VectorEmbeddingService embeddingService;
     private final RetrievalProperties retrievalProperties;
+    private final ChunkReranker chunkReranker;
 
     public HybridRetrievalService(
             ChunkRepository chunkRepository,
             ChineseTokenizer chineseTokenizer,
             VectorEmbeddingService embeddingService,
-            RetrievalProperties retrievalProperties) {
+            RetrievalProperties retrievalProperties,
+            ChunkReranker chunkReranker) {
         this.chunkRepository = chunkRepository;
         this.chineseTokenizer = chineseTokenizer;
         this.embeddingService = embeddingService;
         this.retrievalProperties = retrievalProperties;
+        this.chunkReranker = chunkReranker;
     }
 
     public List<RetrievedChunk> search(String query, int topK) {
+        return search(query, topK, chunkReranker);
+    }
+
+    public List<RetrievedChunk> search(String query, int topK, ChunkReranker reranker) {
         if (query == null || query.isBlank() || topK <= 0) {
             return List.of();
         }
@@ -48,31 +57,28 @@ public class HybridRetrievalService {
         List<String> queryTokens = chineseTokenizer.tokenize(query);
         List<Float> queryVector = embeddingService.generateQueryVector(query);
 
-        List<ChunkRecord> allChunks = chunkRepository.findAll();
-        Map<String, ChunkRecord> byId = new HashMap<>();
-        List<Bm25Index.Bm25Document> bm25Docs = new ArrayList<>();
-        for (ChunkRecord chunk : allChunks) {
-            String id = chunk.id().toString();
-            byId.put(id, chunk);
-            bm25Docs.add(new Bm25Index.Bm25Document(id, chunk.tokens()));
-        }
-
-        Bm25Index bm25Index = new Bm25Index(bm25Docs);
-        List<String> bm25Ids = bm25Index.score(queryTokens, retrievalProperties.getBm25TopN()).stream()
+        List<String> distinctQueryTokens = queryTokens.stream().distinct().toList();
+        Bm25CorpusStats corpusStats = chunkRepository.loadCorpusStats(distinctQueryTokens);
+        List<Bm25Index.Bm25Document> bm25Docs = chunkRepository.findBm25Candidates(distinctQueryTokens);
+        List<String> bm25Ids = Bm25Index.score(
+                        bm25Docs, distinctQueryTokens, corpusStats, retrievalProperties.getBm25TopN()).stream()
                 .map(Bm25Index.ScoredId::id)
                 .collect(Collectors.toList());
 
-        List<String> vectorIds = chunkRepository
-                .searchByEmbedding(queryVector, retrievalProperties.getVectorTopN()).stream()
-                .map(chunk -> chunk.id().toString())
-                .collect(Collectors.toList());
+        List<String> vectorIds = chunkRepository.searchIdsByEmbedding(
+                queryVector, retrievalProperties.getVectorTopN());
 
+        int candidateLimit = Math.max(topK, retrievalProperties.getCandidateTopN());
         List<Bm25Index.ScoredId> fused = RrfFusion.fuse(
                 List.of(vectorIds, bm25Ids),
                 retrievalProperties.getRrfK(),
-                topK);
+                candidateLimit);
 
-        List<RetrievedChunk> results = new ArrayList<>();
+        Map<String, ChunkRecord> byId = new HashMap<>();
+        for (ChunkRecord chunk : chunkRepository.findByIds(fused.stream().map(Bm25Index.ScoredId::id).toList())) {
+            byId.put(chunk.id().toString(), chunk);
+        }
+        List<RetrievedChunk> candidates = new ArrayList<>();
         for (Bm25Index.ScoredId scored : fused) {
             ChunkRecord chunk = byId.get(scored.id());
             if (chunk == null) {
@@ -85,9 +91,17 @@ public class HybridRetrievalService {
             result.setContent(chunk.content());
             result.setScore((float) scored.score());
             result.setMetadata(chunk.metadataJson());
-            results.add(result);
+            candidates.add(result);
         }
 
+        ChunkReranker activeReranker = reranker == null ? chunkReranker : reranker;
+        List<RetrievedChunk> reranked = activeReranker.rerank(query, candidates, topK);
+        List<RetrievedChunk> results = new ArrayList<>();
+        for (RetrievedChunk chunk : reranked) {
+            if (!activeReranker.usesRelevanceScore() || chunk.getScore() >= retrievalProperties.getMinScore()) {
+                results.add(chunk);
+            }
+        }
         logger.info("Hybrid search complete: {} results", results.size());
         return results;
     }

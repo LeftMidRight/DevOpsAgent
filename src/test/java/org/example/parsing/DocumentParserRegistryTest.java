@@ -25,7 +25,7 @@ class DocumentParserRegistryTest {
                 "# Title\n\nbody".getBytes(StandardCharsets.UTF_8));
         ParsedDocument parsed = registry.parse(source);
         assertEquals(PlainTextDocumentParser.PARSER_NAME, parsed.parser());
-        assertEquals(1, parsed.blocks().size());
+        assertEquals("# Title\n\nbody", parsed.content());
     }
 
     @Test

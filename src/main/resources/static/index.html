@@ -122,6 +122,7 @@
 
                     <div class="upload-status kb-page-status" id="kbUploadStatus" aria-live="polite"></div>
 
+                    <div id="kbBrowser">
                     <div class="kb-stats" id="kbStatsBar">
                         <span id="kbDocumentCount">0 个文档</span>
                         <span id="kbChunkCount">0 个分片</span>
@@ -152,6 +153,23 @@
                             </tbody>
                         </table>
                     </div>
+                    </div>
+
+                    <div id="kbDetail" class="kb-detail kb-hidden">
+                        <div class="kb-detail-header">
+                            <button class="kb-action-btn secondary" id="kbDetailBack" type="button">返回列表</button>
+                            <div>
+                                <h2 class="kb-detail-title" id="kbDetailTitle"></h2>
+                                <p class="kb-detail-meta" id="kbDetailMeta"></p>
+                            </div>
+                        </div>
+                        <div class="kb-detail-tabs" role="tablist">
+                            <button class="kb-tab active" id="kbTabSource" type="button" data-tab="source">原文</button>
+                            <button class="kb-tab" id="kbTabChunks" type="button" data-tab="chunks">分块</button>
+                        </div>
+                        <div class="kb-detail-body" id="kbDetailSource"></div>
+                        <div class="kb-detail-body kb-hidden" id="kbDetailChunks"></div>
+                    </div>
                 </div>
             </div>
         </main>
@@ -166,6 +184,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=20260928a"></script>
+    <script src="app.js?v=20261005a"></script>
 </body>
 </html>

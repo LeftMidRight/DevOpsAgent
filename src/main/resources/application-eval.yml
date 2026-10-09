@@ -1,0 +1,17 @@
+# 离线评估 profile：允许 Trace 带上 prompt、completion 和工具内容。
+# 仍需 LANGFUSE_ENABLED=true、OTEL_EXPORTER_OTLP_ENDPOINT 和 LANGFUSE_OTLP_AUTHORIZATION。
+langfuse:
+  environment: eval
+  include-tool-content: true
+
+spring:
+  ai:
+    chat:
+      observations:
+        log-prompt: true
+        log-completion: true
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0

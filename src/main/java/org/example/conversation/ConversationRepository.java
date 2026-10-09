@@ -1,6 +1,9 @@
 package org.example.conversation;
 
 import org.example.context.TokenEstimator;
+import org.example.conversation.ConversationHistoryPersistence.DurableConversationRecord;
+import org.example.conversation.ConversationHistoryPersistence.TurnCommitCommand;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,7 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
-public class ConversationRepository {
+public class ConversationRepository implements ConversationHistoryPersistence {
 
     private final JdbcTemplate jdbcTemplate;
     private final TokenEstimator tokenEstimator;
@@ -100,28 +103,48 @@ public class ConversationRepository {
                 sequence);
     }
 
-    @Transactional
-    public void completeTurn(ConversationTurn turn, String answer) {
-        completeTurn(turn, answer, null);
-    }
-
-    @Transactional
-    public void completeTurn(ConversationTurn turn, String answer, String metadataJson) {
-        int updated = jdbcTemplate.update(
-                "UPDATE conversation_messages SET status = 'COMMITTED' "
-                        + "WHERE id = ? AND conversation_id = ? AND status = 'PENDING'",
-                turn.userMessageId(), turn.conversationId());
-        if (updated != 1) {
-            throw new IllegalStateException("当前用户消息不存在或已完成: " + turn.userMessageId());
+    @Override
+    public Optional<DurableConversationRecord> load(String conversationId) {
+        List<ConversationHead> heads = jdbcTemplate.query(
+                "SELECT revision, working_state::text AS working_state FROM conversations WHERE id = ?",
+                (rs, rowNum) -> new ConversationHead(rs.getLong("revision"), rs.getString("working_state")),
+                conversationId);
+        if (heads.isEmpty()) {
+            return Optional.empty();
         }
-        appendMessage(turn.conversationId(), turn.requestId(), "assistant", answer, "COMMITTED", metadataJson);
+        ConversationHead head = heads.get(0);
+        List<ConversationMessage> messages = jdbcTemplate.query(
+                "SELECT id, conversation_id, request_id, seq, role, content, status, token_count, created_at "
+                        + "FROM conversation_messages "
+                        + "WHERE conversation_id = ? AND status = 'COMMITTED' ORDER BY seq",
+                this::mapMessage,
+                conversationId);
+        return Optional.of(new DurableConversationRecord(
+                head.revision(), WorkingState.fromJson(head.workingState()), messages));
     }
 
-    public void failTurn(ConversationTurn turn) {
-        jdbcTemplate.update(
-                "UPDATE conversation_messages SET status = 'FAILED' "
-                        + "WHERE id = ? AND conversation_id = ? AND status = 'PENDING'",
-                turn.userMessageId(), turn.conversationId());
+    @Override
+    @Transactional
+    public long commitTurn(TurnCommitCommand commit) {
+        createIfAbsent(commit.conversationId());
+        appendMessage(commit.conversationId(), commit.requestId(), "user", commit.userContent(), "COMMITTED");
+        appendMessage(
+                commit.conversationId(), commit.requestId(), "assistant", commit.assistantContent(), "COMMITTED");
+        try {
+            Long revision = jdbcTemplate.queryForObject(
+                    "UPDATE conversations SET working_state = CAST(? AS jsonb), revision = revision + 1, "
+                            + "updated_at = now() WHERE id = ? AND revision = ? RETURNING revision",
+                    Long.class,
+                    commit.workingState().toJson(),
+                    commit.conversationId(),
+                    commit.expectedRevision());
+            if (revision == null) {
+                throw new IllegalStateException("会话提交失败: " + commit.conversationId());
+            }
+            return revision;
+        } catch (EmptyResultDataAccessException e) {
+            throw new IllegalStateException("会话版本冲突，本轮未提交: " + commit.conversationId(), e);
+        }
     }
 
     public boolean updateSummary(
@@ -139,8 +162,8 @@ public class ConversationRepository {
     public void clear(String conversationId) {
         jdbcTemplate.update("DELETE FROM conversation_messages WHERE conversation_id = ?", conversationId);
         jdbcTemplate.update(
-                "UPDATE conversations SET summary = NULL, summary_until_seq = 0, next_seq = 1, updated_at = now() "
-                        + "WHERE id = ?",
+                "UPDATE conversations SET summary = NULL, summary_until_seq = 0, next_seq = 1, "
+                        + "working_state = NULL, revision = 0, updated_at = now() WHERE id = ?",
                 conversationId);
     }
 
@@ -151,6 +174,9 @@ public class ConversationRepository {
                 Integer.class,
                 conversationId);
         return count == null ? 0 : count;
+    }
+
+    private record ConversationHead(long revision, String workingState) {
     }
 
     private ConversationState mapConversation(ResultSet rs, int rowNum) throws SQLException {

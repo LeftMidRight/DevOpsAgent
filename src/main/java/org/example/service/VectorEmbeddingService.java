@@ -65,6 +65,37 @@ public class VectorEmbeddingService {
     }
 
     private List<Float> requestSingleEmbedding(String content) {
+        RuntimeException last = null;
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            try {
+                return requestOnce(content);
+            } catch (RuntimeException e) {
+                last = e;
+                if (attempt == 5 || !retryable(e)) {
+                    logger.error("生成向量嵌入失败, 内容长度: {}", content.length(), e);
+                    throw new RuntimeException("生成向量嵌入失败: " + e.getMessage(), e);
+                }
+                logger.warn("Embedding 请求失败，{} 秒后重试 ({}/5): {}", attempt * 2L, attempt, e.getMessage());
+                try {
+                    Thread.sleep(2000L * attempt);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("生成向量嵌入被中断", interrupted);
+                }
+            }
+        }
+        throw last;
+    }
+
+    private static boolean retryable(RuntimeException e) {
+        String message = e.getMessage() == null ? "" : e.getMessage();
+        return message.contains("429")
+                || message.contains("AccountRateLimitExceeded")
+                || message.contains("Too Many Requests")
+                || message.contains("503");
+    }
+
+    private List<Float> requestOnce(String content) {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("model", properties.getEmbedding().getModel());
@@ -85,9 +116,10 @@ public class VectorEmbeddingService {
                     .body(String.class);
 
             return parseEmbeddingResponse(responseBody);
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
-            logger.error("生成向量嵌入失败, 内容长度: {}", content.length(), e);
-            throw new RuntimeException("生成向量嵌入失败: " + e.getMessage(), e);
+            throw new RuntimeException(e.getMessage(), e);
         }
     }
 

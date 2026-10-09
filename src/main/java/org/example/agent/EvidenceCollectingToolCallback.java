@@ -1,5 +1,7 @@
 package org.example.agent;
 
+import io.micrometer.observation.ObservationRegistry;
+import org.example.observability.langfuse.AgentToolTrace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ToolContext;
@@ -21,15 +23,17 @@ public class EvidenceCollectingToolCallback implements ToolCallback {
     private final ToolCallback delegate;
     private final AgentRunContext runContext;
     private final String source;
+    private final ObservationRegistry observationRegistry;
 
-    public EvidenceCollectingToolCallback(ToolCallback delegate, AgentRunContext runContext, String source) {
+    public EvidenceCollectingToolCallback(
+            ToolCallback delegate,
+            AgentRunContext runContext,
+            String source,
+            ObservationRegistry observationRegistry) {
         this.delegate = delegate;
         this.runContext = runContext;
         this.source = source;
-    }
-
-    public ToolCallback delegate() {
-        return delegate;
+        this.observationRegistry = observationRegistry == null ? ObservationRegistry.NOOP : observationRegistry;
     }
 
     @Override
@@ -57,15 +61,15 @@ public class EvidenceCollectingToolCallback implements ToolCallback {
         String normalizedArgs = RunEvidenceAnalyzer.normalizeArguments(toolInput);
 
         if (runContext.isTerminated() || runContext.isDeadlineExceeded()) {
-            return rejection(toolName, "任务已终止，不再执行新的工具调用");
+            return reject(toolName, "任务已终止，不再执行新的工具调用");
         }
         if (!runContext.tryAcquireToolCall()) {
-            return rejection(toolName,
+            return reject(toolName,
                     "工具调用次数或任务耗时已达上限（上限 " + runContext.budget().getMaxToolCalls()
                             + " 次），请基于已有信息作答");
         }
         if (runContext.isFailureStreakExceeded(toolName, normalizedArgs)) {
-            return rejection(toolName,
+            return reject(toolName,
                     "相同调用已连续失败或返回空结果 " + runContext.budget().getMaxConsecutiveToolFailures()
                             + " 次，请停止该方向的重复查询并在回答中说明");
         }
@@ -80,42 +84,60 @@ public class EvidenceCollectingToolCallback implements ToolCallback {
             logger.warn("工具调用异常 - runId: {}, tool: {}, elapsedMs: {}", runContext.runId(), toolName, elapsedMs, e);
             runContext.recordToolFailure(toolName, normalizedArgs);
             if (runContext.isTerminated() || runContext.isDeadlineExceeded()) {
-                return rejection(toolName, "任务已终止，丢弃迟到的工具异常结果");
+                return reject(toolName, "任务已终止，丢弃迟到的工具异常结果");
             }
+            String errorBody = errorJson(toolName, e.getMessage());
             List<RunEvidence> evidences = runContext.addEvidences(
-                    toolName, source, normalizedArgs, errorJson(toolName, e.getMessage()));
+                    toolName, source, normalizedArgs, errorBody);
+            trace(EvidenceStatus.ERROR.name(), ids(evidences), errorBody.length());
             runContext.events().onProgress("工具 " + toolName + " 调用失败（" + ids(evidences) + "）");
             return withEvidenceHeader(evidences, RunEvidenceAnalyzer.truncateForModel(
-                    errorJson(toolName, e.getMessage()), runContext.budget().getMaxToolResultChars()));
+                    errorBody, runContext.budget().getMaxToolResultChars()));
         }
 
         long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
         if (runContext.isTerminated() || runContext.isDeadlineExceeded()) {
             logger.info("丢弃迟到工具结果 - runId: {}, tool: {}, elapsedMs: {}",
                     runContext.runId(), toolName, elapsedMs);
-            return rejection(toolName, "任务已终止，丢弃迟到的工具结果");
+            return reject(toolName, "任务已终止，丢弃迟到的工具结果");
         }
         List<RunEvidence> evidences = runContext.addEvidences(toolName, source, normalizedArgs, raw);
+        trace(statusOf(evidences).name(), ids(evidences), raw == null ? 0 : raw.length());
         boolean allSuccess = evidences.stream().allMatch(e -> e.status() == EvidenceStatus.SUCCESS);
         if (allSuccess) {
             runContext.recordToolSuccess(toolName, normalizedArgs);
         } else {
             runContext.recordToolFailure(toolName, normalizedArgs);
         }
-        logger.info("工具调用完成 - runId: {}, tool: {}, evidence: {}, elapsedMs: {}",
-                runContext.runId(), toolName, ids(evidences), elapsedMs);
+        logger.info("工具调用完成 - runId: {}, tool: {}, evidence: {}, elapsedMs: {}, resultChars: {}",
+                runContext.runId(), toolName, ids(evidences), elapsedMs, raw == null ? 0 : raw.length());
         runContext.events().onProgress(progressMessage(toolName, evidences, elapsedMs));
 
         String truncated = RunEvidenceAnalyzer.truncateForModel(raw, runContext.budget().getMaxToolResultChars());
         return withEvidenceHeader(evidences, truncated);
     }
 
+    private void trace(String status, String evidenceIds, int resultChars) {
+        AgentToolTrace.record(observationRegistry, source, status, evidenceIds, resultChars);
+    }
+
+    private String reject(String toolName, String reason) {
+        trace("rejected", "", 0);
+        return rejection(toolName, reason);
+    }
+
+    private static EvidenceStatus statusOf(List<RunEvidence> evidences) {
+        if (evidences.stream().anyMatch(e -> e.status() == EvidenceStatus.ERROR)) {
+            return EvidenceStatus.ERROR;
+        }
+        if (evidences.stream().anyMatch(e -> e.status() == EvidenceStatus.EMPTY)) {
+            return EvidenceStatus.EMPTY;
+        }
+        return EvidenceStatus.SUCCESS;
+    }
+
     private static String progressMessage(String toolName, List<RunEvidence> evidences, long elapsedMs) {
-        EvidenceStatus status = evidences.stream().anyMatch(e -> e.status() == EvidenceStatus.ERROR)
-                ? EvidenceStatus.ERROR
-                : evidences.stream().anyMatch(e -> e.status() == EvidenceStatus.EMPTY)
-                ? EvidenceStatus.EMPTY
-                : EvidenceStatus.SUCCESS;
+        EvidenceStatus status = statusOf(evidences);
         return switch (status) {
             case SUCCESS -> "工具 " + toolName + " 完成（证据 " + ids(evidences) + "，" + elapsedMs + "ms）";
             case EMPTY -> "工具 " + toolName + " 返回空结果（" + ids(evidences) + "）";

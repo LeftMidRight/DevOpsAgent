@@ -1,27 +1,32 @@
 package org.example.agent;
 
+import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
-import org.example.context.ContextAssembler;
-import org.example.context.ContextPackage;
 import org.example.context.ContextProperties;
+import org.example.observability.langfuse.AgentRunObservation;
 import org.example.context.TokenEstimator;
 import org.example.conversation.ConversationExecutionCoordinator;
+import org.example.conversation.ConversationHydrator;
 import org.example.conversation.ConversationLockTimeoutException;
 import org.example.conversation.ConversationService;
-import org.example.conversation.ConversationTurn;
+import org.example.conversation.PendingTurn;
+import org.example.conversation.RuntimeConversationState;
+import org.example.conversation.SuperBizChatMemory;
+import org.example.conversation.TurnCommitService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.ToolCallingAdvisor;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.DefaultToolCallingManager;
-import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallLimitBehavior;
+import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -31,9 +36,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 统一执行入口：
- * 加锁 → 建轮次 → 组装上下文 → 单 Agent 执行（含工具循环）→ 提交持久化。
- * 成功前发生终止时轮次标为 FAILED，不进入未来上下文。
+ * 统一执行入口：加锁 → 取 JVM 会话状态 → 单 Agent 执行 → 成功后 Turn Commit。
+ * 失败的 Run 不写入会话历史，也不提交本轮 WorkingState 草稿。
  */
 @Service
 public class AgentExecutionService {
@@ -42,31 +46,40 @@ public class AgentExecutionService {
 
     private final ConversationService conversationService;
     private final ConversationExecutionCoordinator conversationCoordinator;
-    private final ContextAssembler contextAssembler;
+    private final ConversationHydrator conversationHydrator;
+    private final TurnCommitService turnCommitService;
+    private final SuperBizChatMemory chatMemory;
     private final UnifiedAgentFactory agentFactory;
     private final AgentProperties properties;
     private final ContextProperties contextProperties;
     private final TokenEstimator tokenEstimator;
     private final ToolCallingManager toolCallingManager;
     private final ObservationRegistry observationRegistry;
+    private final AgentRunObservation agentRunObservation;
 
     public AgentExecutionService(
             ConversationService conversationService,
             ConversationExecutionCoordinator conversationCoordinator,
-            ContextAssembler contextAssembler,
+            ConversationHydrator conversationHydrator,
+            TurnCommitService turnCommitService,
+            SuperBizChatMemory chatMemory,
             UnifiedAgentFactory agentFactory,
             AgentProperties properties,
             ContextProperties contextProperties,
             TokenEstimator tokenEstimator,
-            ObservationRegistry observationRegistry) {
+            ObservationRegistry observationRegistry,
+            AgentRunObservation agentRunObservation) {
         this.conversationService = conversationService;
         this.conversationCoordinator = conversationCoordinator;
-        this.contextAssembler = contextAssembler;
+        this.conversationHydrator = conversationHydrator;
+        this.turnCommitService = turnCommitService;
+        this.chatMemory = chatMemory;
         this.agentFactory = agentFactory;
         this.properties = properties;
         this.contextProperties = contextProperties;
         this.tokenEstimator = tokenEstimator;
         this.observationRegistry = observationRegistry;
+        this.agentRunObservation = agentRunObservation;
         this.toolCallingManager = DefaultToolCallingManager.builder()
                 .observationRegistry(observationRegistry)
                 .maxCallsPerTool(properties.getBudget().getMaxCallsPerTool())
@@ -102,71 +115,98 @@ public class AgentExecutionService {
         Instant deadline = Instant.now().plusSeconds(properties.getBudget().getMaxDurationSeconds());
         String conversationId = conversationService.resolveConversationId(request.requestedConversationId());
 
-        try (ConversationExecutionCoordinator.Lease ignored = conversationCoordinator.acquire(conversationId, deadline)) {
-            ConversationTurn turn = conversationService.beginTurn(
-                    conversationId, request.question());
+        try (ConversationExecutionCoordinator.Lease ignored =
+                     conversationCoordinator.acquire(conversationId, deadline)) {
+            RuntimeConversationState state = conversationHydrator.getActive(conversationId);
+            PendingTurn pending = PendingTurn.begin(
+                    UUID.randomUUID(),
+                    request.question(),
+                    state.workingState(),
+                    state.persistedRevision());
             UUID runId = UUID.randomUUID();
             AgentRunContext runContext = new AgentRunContext(
                     runId, properties.getBudget(), events, deadline, cancellation);
-            events.onMeta(conversationId, turn.requestId().toString(), runId.toString());
+            events.onMeta(conversationId, pending.requestId().toString(), runId.toString());
+            Observation runObservation = agentRunObservation.start(
+                    conversationId, pending.requestId().toString(), runId.toString(), request.streaming());
+            try (Observation.Scope ignoredScope = runObservation.openScope()) {
+                String reasoning = null;
+                try {
+                    events.onProgress("开始执行任务");
+                    AgentTaskPolicy policy = AgentTaskPolicy.of(properties);
+                    ChatModel chatModel = agentFactory.createChatModel(policy);
+                    List<Message> modelMessages = modelMessages(policy, state, pending);
+                    logger.info("统一执行开始 - SessionId: {}, runId: {}, 已提交消息数: {}",
+                            conversationId, runId, state.messages().size());
 
-            String reasoning = null;
-            try {
-                events.onProgress("开始执行任务");
-                AgentTaskPolicy policy = AgentTaskPolicy.of(properties);
-                ChatModel chatModel = agentFactory.createChatModel(policy);
+                    PreparedAgent agent = agentFactory.createAgent(policy, chatModel, runContext);
+                    BudgetEnforcementHook budgetHook = new BudgetEnforcementHook(
+                            runContext, tokenEstimator, messageTokenBudget());
 
-                ContextPackage context = contextAssembler.assemble(conversationId, turn.requestId(), chatModel);
-                logger.info("统一执行开始 - SessionId: {}, runId: {}, 消息数: {}",
-                        conversationId, runId, context.messages().size());
+                    ModelReply modelReply = request.streaming()
+                            ? executeStreaming(agent, modelMessages, events, runContext, budgetHook)
+                            : callAndGuard(agent, modelMessages, runContext, budgetHook);
 
-                PreparedAgent agent = agentFactory.createAgent(policy, chatModel, runContext);
-                BudgetEnforcementHook budgetHook = new BudgetEnforcementHook(
-                        runContext, tokenEstimator, messageTokenBudget());
-
-                ModelReply modelReply = request.streaming()
-                        ? executeStreaming(agent, context.messages(), events, runContext, budgetHook)
-                        : callAndGuard(agent, context.messages(), runContext, budgetHook);
-
-                runContext.rejectLateResult();
-
-                String rawAnswer = modelReply.answer();
-                reasoning = modelReply.reasoning();
-
-                String finalAnswer = rawAnswer;
-
-                return commitSuccess(
-                        request, events, conversationId, turn, runId, runContext, finalAnswer, reasoning);
-            } catch (BudgetExceededException e) {
-                if (e.allowsPartialResult() && !runContext.isTerminated() && !runContext.isDeadlineExceeded()) {
-                    logger.warn("预算耗尽，交付部分结果 - runId: {}, reason: {}", runId, e.getMessage());
-                    String partial = "任务因预算限制未完成：" + e.getMessage();
-                    return commitSuccess(
-                            request, events, conversationId, turn, runId, runContext, partial, reasoning);
+                    runContext.rejectLateResult();
+                    reasoning = modelReply.reasoning();
+                    AgentExecutionResult result = commitSuccess(
+                            events, conversationId, state, pending, runId, runContext, modelReply.answer(), reasoning);
+                    agentRunObservation.succeed(runObservation, runContext);
+                    return result;
+                } catch (BudgetExceededException e) {
+                    if (e.allowsPartialResult() && !runContext.isTerminated() && !runContext.isDeadlineExceeded()) {
+                        logger.warn("预算耗尽，交付部分结果 - runId: {}, reason: {}", runId, e.getMessage());
+                        String partial = "任务因预算限制未完成：" + e.getMessage();
+                        AgentExecutionResult result = commitSuccess(
+                                events, conversationId, state, pending, runId, runContext, partial, reasoning);
+                        agentRunObservation.partial(runObservation, runContext, e.getMessage());
+                        return result;
+                    }
+                    runContext.terminate();
+                    agentRunObservation.fail(runObservation, runContext, e);
+                    throw e;
+                } catch (Exception e) {
+                    runContext.terminate();
+                    agentRunObservation.fail(runObservation, runContext, e);
+                    throw e;
                 }
-                runContext.terminate();
-                failSafely(turn, e);
-                throw e;
-            } catch (Exception e) {
-                runContext.terminate();
-                failSafely(turn, e);
-                throw e;
+            } finally {
+                runObservation.stop();
             }
         } catch (ConversationLockTimeoutException e) {
             throw new BudgetExceededException(e.getMessage(), BudgetExceededException.Kind.DEADLINE);
         }
     }
 
+    private List<Message> modelMessages(
+            AgentTaskPolicy policy,
+            RuntimeConversationState state,
+            PendingTurn pending) {
+        List<Message> history = new ArrayList<>();
+        history.add(new SystemMessage(policy.systemPrompt()));
+        String workingState = pending.workingStateDraft().toPromptText();
+        if (!workingState.isBlank()) {
+            history.add(new UserMessage(workingState));
+        }
+        history.addAll(chatMemory.get(state.conversationId()));
+        history.add(pending.userMessage());
+        return history;
+    }
+
     private AgentExecutionResult commitSuccess(
-            AgentExecutionRequest request,
             AgentExecutionEvents events,
             String conversationId,
-            ConversationTurn turn,
+            RuntimeConversationState state,
+            PendingTurn pending,
             UUID runId,
             AgentRunContext runContext,
             String finalAnswer,
             String reasoning) {
-        conversationService.completeTurn(turn, finalAnswer);
+        if (finalAnswer == null || finalAnswer.isBlank()) {
+            throw new IllegalStateException("未从模型输出提取到完整回答");
+        }
+        long revision = turnCommitService.commit(conversationId, pending, finalAnswer);
+        state.commitTurn(pending.userMessage(), finalAnswer, pending.workingStateDraft(), revision);
         if (reasoning != null && !reasoning.isBlank()) {
             events.onReasoningFinal(reasoning);
         }
@@ -176,7 +216,7 @@ public class AgentExecutionService {
                 reasoning == null ? 0 : reasoning.length(),
                 runContext.modelCalls(), runContext.toolCalls());
         return new AgentExecutionResult(
-                conversationId, turn.requestId(), runId, finalAnswer, reasoning);
+                conversationId, pending.requestId(), runId, finalAnswer, reasoning);
     }
 
     private ModelReply callAndGuard(
@@ -218,10 +258,7 @@ public class AgentExecutionService {
             BudgetEnforcementHook budgetHook,
             AgentExecutionEvents events,
             StreamingAnswerCollector collector) {
-        List<Message> history = new ArrayList<>();
-        history.add(new SystemMessage(agent.systemPrompt()));
-        history.addAll(contextMessages);
-        Prompt prompt = new Prompt(history, agent.options());
+        Prompt prompt = new Prompt(contextMessages, agent.options());
         ChatClient client = ChatClient.builder(agent.chatModel(), observationRegistry, null, null)
                 .defaultAdvisors(
                         ToolCallingAdvisor.builder().toolCallingManager(toolCallingManager).build(),
@@ -256,12 +293,11 @@ public class AgentExecutionService {
         return Math.max(1, budget);
     }
 
-    private void failSafely(ConversationTurn turn, Exception cause) {
-        try {
-            conversationService.failTurn(turn);
-        } catch (Exception persistenceError) {
-            logger.error("标记失败会话轮次时发生异常 - RequestId: {}", turn.requestId(), persistenceError);
-            cause.addSuppressed(persistenceError);
+    private record ModelReply(String answer, String reasoning) {
+        private ModelReply {
+            if (reasoning != null && reasoning.isBlank()) {
+                reasoning = null;
+            }
         }
     }
 }

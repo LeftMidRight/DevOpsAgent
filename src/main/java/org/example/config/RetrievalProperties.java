@@ -9,10 +9,12 @@ import org.springframework.context.annotation.Configuration;
 @ConfigurationProperties(prefix = "retrieval")
 public class RetrievalProperties {
 
-    private int vectorTopN = 10;
-    private int bm25TopN = 10;
+    private int vectorTopN = 20;
+    private int bm25TopN = 20;
+    private int candidateTopN = 20;
     private int rrfK = 60;
     private int embeddingDim = 1024;
+    private float minScore = 0f;
 
     public void setVectorTopN(int vectorTopN) {
         this.vectorTopN = vectorTopN;
@@ -22,11 +24,19 @@ public class RetrievalProperties {
         this.bm25TopN = bm25TopN;
     }
 
+    public void setCandidateTopN(int candidateTopN) {
+        this.candidateTopN = candidateTopN;
+    }
+
     public void setRrfK(int rrfK) {
         this.rrfK = rrfK;
     }
 
     public void setEmbeddingDim(int embeddingDim) {
         this.embeddingDim = embeddingDim;
+    }
+
+    public void setMinScore(float minScore) {
+        this.minScore = minScore;
     }
 }

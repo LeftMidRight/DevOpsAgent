@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
   file_name     VARCHAR(512) NOT NULL,
   title         VARCHAR(512),
   content       TEXT NOT NULL,
+  retrieval_text TEXT,
   tokens        TEXT[] NOT NULL DEFAULT '{}',
   embedding     vector(1024) NOT NULL,
   chunk_index   INT NOT NULL,
@@ -13,6 +14,11 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chunks_file_name ON document_chunks (file_name);
+
+CREATE INDEX IF NOT EXISTS idx_chunks_tokens
+  ON document_chunks USING GIN (tokens);
+
+ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS retrieval_text TEXT;
 
 CREATE TABLE IF NOT EXISTS conversations (
   id                  VARCHAR(128) PRIMARY KEY,
@@ -42,6 +48,9 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 
 CREATE INDEX IF NOT EXISTS idx_conversation_messages_context
   ON conversation_messages (conversation_id, status, seq);
+
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS working_state JSONB;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_conversations_updated_at
   ON conversations (updated_at DESC);

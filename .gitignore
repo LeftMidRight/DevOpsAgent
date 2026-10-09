@@ -39,6 +39,9 @@ build/
 ### Mac OS ###
 .DS_Store
 
+### Local secrets (never commit) ###
+**/application-local.yml
+
 ### Application Logs ###
 *.log
 app.log
@@ -68,3 +71,11 @@ eval/ragas/input/*
 eval/ragas/output/*
 !eval/ragas/output/.gitkeep
 !eval/ragas/.env.example
+eval/ragas/.env
+eval/ragas/__pycache__/
+
+### Local scratch, not part of the project ###
+/tmp/
+/org/
+/.trae/
+AI-Agents-in-Depth-zh-CN*.pdf

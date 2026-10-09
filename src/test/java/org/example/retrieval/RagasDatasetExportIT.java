@@ -45,8 +45,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * Ragas 数据集导出器：跑真实 Agent，采集每 case 实际 queryInternalDocs
- * 的检索上下文与最终回答，导出 Ragas 输入 JSONL。
+ * Agent Eval 导出器：跑完整 Unified Agent，采集工具调用与最终回答。
+ * 这不是 Pure RAG 评估；Pure RAG 见 PureRagDatasetExportIT。
  *
  * 仅在 rag-eval profile 且显式 -Dragas.export=true 时运行；
  * 普通 mvn test / mvn verify 不产生 LLM 成本。

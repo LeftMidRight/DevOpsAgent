@@ -5,3 +5,12 @@ spring:
   sql:
     init:
       mode: never
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.micrometer.metrics.autoconfigure.export.otlp.OtlpMetricsExportAutoConfiguration
+
+management:
+  otlp:
+    metrics:
+      export:
+        enabled: false

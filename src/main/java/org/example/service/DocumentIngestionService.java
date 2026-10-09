@@ -1,13 +1,15 @@
 package org.example.service;
 
 import com.google.gson.Gson;
+import org.example.chunking.MarkdownChunker;
+import org.example.chunking.MarkdownParser;
 import org.example.dto.KnowledgeDocumentSummary;
 import org.example.parsing.DocumentExtensionSupport;
 import org.example.parsing.DocumentParseException;
 import org.example.parsing.DocumentParserRegistry;
 import org.example.parsing.DocumentSource;
 import org.example.parsing.ParsedDocument;
-import org.example.parsing.mineru.MinerUStructuredContentMapper;
+import org.example.parsing.mineru.MinerUAgentDocumentParser;
 import org.example.repository.ChunkRepository;
 import org.example.repository.DocumentRepository;
 import org.example.repository.KnowledgeDocumentRow;
@@ -36,7 +38,8 @@ public class DocumentIngestionService {
     private final DocumentRepository documentRepository;
     private final ObjectStorageService objectStorageService;
     private final DocumentParserRegistry parserRegistry;
-    private final StructureAwareChunker structureAwareChunker;
+    private final MarkdownParser markdownParser;
+    private final MarkdownChunker markdownChunker;
     private final VectorEmbeddingService embeddingService;
     private final ChunkRepository chunkRepository;
     private final ChineseTokenizer tokenizer = new ChineseTokenizer();
@@ -46,13 +49,15 @@ public class DocumentIngestionService {
             DocumentRepository documentRepository,
             ObjectStorageService objectStorageService,
             DocumentParserRegistry parserRegistry,
-            StructureAwareChunker structureAwareChunker,
+            MarkdownParser markdownParser,
+            MarkdownChunker markdownChunker,
             VectorEmbeddingService embeddingService,
             ChunkRepository chunkRepository) {
         this.documentRepository = documentRepository;
         this.objectStorageService = objectStorageService;
         this.parserRegistry = parserRegistry;
-        this.structureAwareChunker = structureAwareChunker;
+        this.markdownParser = markdownParser;
+        this.markdownChunker = markdownChunker;
         this.embeddingService = embeddingService;
         this.chunkRepository = chunkRepository;
     }
@@ -68,7 +73,8 @@ public class DocumentIngestionService {
         try {
             ParsedDocument parsed = parseDocument(document);
             persistParsedArtifactIfNeeded(documentId, parsed);
-            List<ChunkDraft> drafts = structureAwareChunker.chunk(parsed);
+            List<ChunkDraft> drafts = markdownChunker.chunk(
+                    markdownParser.parse(parsed.content()), document.fileName());
             List<ChunkRecord> rows = buildChunkRecords(document, parsed, drafts);
             chunkRepository.replaceDocumentChunks(documentId, document.fileName(), rows);
             documentRepository.markIndexed(documentId, rows.size());
@@ -89,9 +95,9 @@ public class DocumentIngestionService {
         String parsedKey = document.parsedObjectKey();
         if (parsedKey != null && !parsedKey.isBlank() && objectStorageService.objectExists(parsedKey)) {
             byte[] cached = objectStorageService.getObject(parsedKey);
-            String json = new String(cached, StandardCharsets.UTF_8);
+            String text = new String(cached, StandardCharsets.UTF_8);
             logger.info("复用已缓存解析结果 - documentId: {}", document.id());
-            return MinerUStructuredContentMapper.map(document.id(), document.fileName(), json);
+            return MinerUAgentDocumentParser.fromMarkdown(document.id(), document.fileName(), text);
         }
         byte[] bytes = objectStorageService.getObject(document.objectKey());
         String mediaType = document.mediaType() != null && !document.mediaType().isBlank()
@@ -103,12 +109,11 @@ public class DocumentIngestionService {
     }
 
     private void persistParsedArtifactIfNeeded(UUID documentId, ParsedDocument parsed) {
-        Object raw = parsed.metadata().get("structuredContentJson");
-        if (!(raw instanceof String json) || json.isBlank()) {
+        if (!MinerUAgentDocumentParser.PARSER_NAME.equals(parsed.parser()) || parsed.content().isBlank()) {
             return;
         }
-        String key = ParsedArtifactPaths.structuredContentKey(documentId);
-        objectStorageService.putObjectBytes(key, json.getBytes(StandardCharsets.UTF_8), "application/json");
+        String key = "parsed/" + documentId + "/content.md";
+        objectStorageService.putObjectBytes(key, parsed.content().getBytes(StandardCharsets.UTF_8), "text/markdown");
         documentRepository.updateParsedArtifact(documentId, parsed.parser(), parsed.parserVersion(), key);
     }
 
@@ -116,8 +121,11 @@ public class DocumentIngestionService {
             KnowledgeDocumentRow document, ParsedDocument parsed, List<ChunkDraft> drafts) {
         List<ChunkRecord> rows = new ArrayList<>();
         for (ChunkDraft draft : drafts) {
-            List<Float> vector = embeddingService.generateEmbedding(draft.content());
-            List<String> tokens = tokenizer.tokenize(draft.content());
+            String retrievalText = draft.retrievalText() == null || draft.retrievalText().isBlank()
+                    ? draft.content()
+                    : draft.retrievalText();
+            List<Float> vector = embeddingService.generateEmbedding(retrievalText);
+            List<String> tokens = tokenizer.tokenize(retrievalText);
             UUID chunkId = UUID.nameUUIDFromBytes(
                     (document.id() + "_" + draft.chunkIndex()).getBytes(StandardCharsets.UTF_8));
             rows.add(new ChunkRecord(
@@ -125,6 +133,7 @@ public class DocumentIngestionService {
                     document.fileName(),
                     draft.title(),
                     draft.content(),
+                    retrievalText,
                     tokens,
                     vector,
                     draft.chunkIndex(),
@@ -147,11 +156,13 @@ public class DocumentIngestionService {
         metadata.put("sourceType", parsed.sourceType());
         metadata.put("parser", parsed.parser());
         metadata.put("parserVersion", parsed.parserVersion());
-        metadata.put("contentType", "text");
+        metadata.put("contentType", draft.contentType());
+        if (draft.headingPath() != null && !draft.headingPath().isEmpty()) {
+            metadata.put("headingPath", draft.headingPath());
+        }
         if (draft.title() != null && !draft.title().isEmpty()) {
             metadata.put("title", draft.title());
         }
-        metadata.putAll(draft.sourceMetadata());
         return metadata;
     }
 

@@ -5,7 +5,6 @@ import org.example.agent.AgentExecutionResult;
 import org.example.agent.AgentExecutionService;
 import org.example.dto.ChatAnswer;
 import org.example.dto.ChatRequest;
-import org.example.support.ChatRequestSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -40,12 +39,10 @@ public class ChatApplicationService {
      * 校验流式问答请求。问题为空时抛出 IllegalArgumentException。
      */
     public PreparedChat prepareChat(ChatRequest request) {
-        if (ChatRequestSupport.hasBlankQuestion(request)) {
+        if (request == null || request.getQuestion() == null || request.getQuestion().isBlank()) {
             throw new IllegalArgumentException("问题内容不能为空");
         }
-        return new PreparedChat(
-                request.getId(),
-                ChatRequestSupport.normalizedQuestion(request));
+        return new PreparedChat(request.getId(), request.getQuestion().trim());
     }
 
     public record PreparedChat(String sessionId, String question) {

@@ -9,9 +9,13 @@ import java.util.UUID;
 public class ConversationService {
 
     private final ConversationRepository conversationRepository;
+    private final RuntimeConversationStore runtimeConversationStore;
 
-    public ConversationService(ConversationRepository conversationRepository) {
+    public ConversationService(
+            ConversationRepository conversationRepository,
+            RuntimeConversationStore runtimeConversationStore) {
         this.conversationRepository = conversationRepository;
+        this.runtimeConversationStore = runtimeConversationStore;
     }
 
     public String resolveConversationId(String requestedId) {
@@ -21,27 +25,12 @@ public class ConversationService {
         if (conversationId.length() > 128) {
             throw new IllegalArgumentException("会话ID长度不能超过128个字符");
         }
-        conversationRepository.createIfAbsent(conversationId);
         return conversationId;
-    }
-
-    public ConversationTurn beginTurn(String conversationId, String question) {
-        UUID requestId = UUID.randomUUID();
-        ConversationMessage userMessage = conversationRepository.appendMessage(
-                conversationId, requestId, "user", question, "PENDING", null);
-        return new ConversationTurn(conversationId, requestId, userMessage.id());
-    }
-
-    public void completeTurn(ConversationTurn turn, String answer) {
-        conversationRepository.completeTurn(turn, answer);
-    }
-
-    public void failTurn(ConversationTurn turn) {
-        conversationRepository.failTurn(turn);
     }
 
     public void clear(String conversationId) {
         conversationRepository.clear(conversationId);
+        runtimeConversationStore.remove(conversationId);
     }
 
     public Optional<ConversationState> find(String conversationId) {

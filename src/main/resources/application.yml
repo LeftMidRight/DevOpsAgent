@@ -11,6 +11,24 @@ management:
     web:
       exposure:
         include: health,prometheus
+  tracing:
+    sampling:
+      probability: ${LANGFUSE_SAMPLING_PROBABILITY:1.0}
+    export:
+      enabled: ${LANGFUSE_ENABLED:false}
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # Langfuse OTLP 基址，例如 https://cloud.langfuse.com/api/public/otel
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:}
+          headers:
+            Authorization: ${LANGFUSE_OTLP_AUTHORIZATION:}
+            x-langfuse-ingestion-version: "4"
 
 file:
   upload:
@@ -49,10 +67,10 @@ retrieval:
 volcengine:
   api-key: ${VOLCENGINE_API_KEY:${ARK_API_KEY:your-api-key-here}}
   chat:
-    base-url: ${VOLCENGINE_CHAT_BASE_URL:https://ark.cn-beijing.volces.com/api/coding/v3}
+    base-url: ${VOLCENGINE_CHAT_BASE_URL:https://ark.cn-beijing.volces.com/api/plan/v3}
     timeout-ms: 180000
   embedding:
-    base-url: ${VOLCENGINE_EMBEDDING_BASE_URL:https://ark.cn-beijing.volces.com/api/coding/v3}
+    base-url: ${VOLCENGINE_EMBEDDING_BASE_URL:https://ark.cn-beijing.volces.com/api/plan/v3}
     path: ${VOLCENGINE_EMBEDDING_PATH:/embeddings/multimodal}
     model: ${VOLCENGINE_EMBEDDING_MODEL:doubao-embedding-vision}
     dimensions: ${VOLCENGINE_EMBEDDING_DIMENSIONS:1024}
@@ -60,6 +78,12 @@ volcengine:
 
 # Spring AI Alibaba DashScope 配置（保留 starter 兼容，主链路已切换至 volcengine）
 spring:
+  application:
+    name: devops-agent
+  autoconfigure:
+    exclude:
+      # 只把 Trace 送到 Langfuse，不把 Micrometer 指标推到本地 4318。
+      - org.springframework.boot.micrometer.metrics.autoconfigure.export.otlp.OtlpMetricsExportAutoConfiguration
   datasource:
     url: jdbc:postgresql://localhost:5432/superbiz
     username: superbiz
@@ -70,6 +94,12 @@ spring:
       mode: always
       continue-on-error: false
   ai:
+    chat:
+      observations:
+        # 默认不把 prompt / completion 送进 Trace。eval profile 再打开。
+        log-prompt: false
+        log-completion: false
+        include-error-logging: true
     dashscope:
       api-key: ${DASHSCOPE_API_KEY:your-api-key-here}  # 从环境变量读取或使用默认值
       chat:
@@ -84,7 +114,7 @@ spring:
     
     # Spring AI MCP 客户端配置
     # 未配置有效 MCP 地址时请保持 enabled: false，否则启动时会阻塞连接占位 URL。
-    # Mock 日志（cls.mock-enabled=true）与真实 MCP 不要同时作为日志来源。
+    # 日志查询由本地 queryLogs 访问 Loki，不依赖 MCP。
     mcp:
       client:
         enabled: false
@@ -119,19 +149,28 @@ context:
   recent-message-tokens: 8000
   compression-trigger-tokens: 8000
 
-# Prometheus 配置
-prometheus:
-  base-url: http://localhost:9090
-  timeout: 10  # 超时时间（秒）
-  mock-enabled: false  # 是否启用 Mock 模式（用于测试）
+# Langfuse 只接收 Trace。密钥通过环境变量注入，不写进仓库。
+langfuse:
+  enabled: ${LANGFUSE_ENABLED:false}
+  environment: ${LANGFUSE_ENVIRONMENT:dev}
+  app-version: ${APP_VERSION:unknown}
+  include-tool-content: false
 
-# CLS 云日志服务配置
-cls:
-  mock-enabled: true  # 本地开发默认 Mock 日志工具；真实日志需启用 spring.ai.mcp.client 并配置有效 MCP
+# 观测后端。Agent 只调用诊断工具，不直接暴露 PromQL / LogQL。
+observability:
+  prometheus:
+    base-url: http://localhost:9090
+    timeout: 10s
+  loki:
+    base-url: http://localhost:3100
+    timeout: 10s
+    default-limit: 20
+    max-limit: 100
+    max-message-chars: 500
 
 # 统一业务 Agent 配置
 agent:
-  model: ${AGENT_MODEL:doubao-seed-2.1-turbo}
+  model: ${AGENT_MODEL:DeepSeek-V4.1-Flash}
   chat:
     temperature: 0.7
     max-tokens: 2000

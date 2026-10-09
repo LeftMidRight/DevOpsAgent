@@ -18,7 +18,7 @@ import java.util.UUID;
 
 /**
  * 阶段一：上传。文件写入 MinIO 对象存储并登记文档元数据，状态为 UPLOADED。
- * 分块与向量化由 DocumentChunkingService 单独执行。
+ * 分块与向量化由 DocumentIngestionService 单独执行。
  */
 @Service
 public class DocumentUploadService {

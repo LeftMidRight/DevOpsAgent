@@ -1,22 +1,22 @@
 # SuperBizAgent Ragas 评估
 
-Ragas 是独立的离线语义评估器，**不进入 Spring Boot 生产链路、不是 Maven 依赖**。
-Java 侧是被评系统（`RagasDatasetExportIT` 导出真实 Agent 运行数据），本目录是评估器。
+Ragas 是独立的离线评估器，不进入 Spring Boot，也不是 Maven 依赖。
+Java 负责跑被测系统并导出 JSONL，Python 只打分。
 
-## 在整体评估中的位置
+两套评估不能混分数：
 
 ```text
-HybridRetrievalEvalIT (Java, 确定性)   RagasDatasetExportIT (Java, 导出)
-        HitRate@Recall@MRR                     │ 真实 queryInternalDocs contexts
-        NoResult P/R                           ▼
-                                        input/*.jsonl
-                                               │
-                                        evaluate.py (本目录)
-                                               │
-                          Faithfulness / Answer Relevancy
-                          Context Precision / Context Recall
-                                               │
-                              output/*.json + docs/ragas-eval-report.md
+HybridRetrievalEvalIT          PureRagDatasetExportIT         RagasDatasetExportIT
+确定性检索 Hit/Recall/MRR      一次检索 + 固定生成器            完整 Unified Agent
+无 Judge 成本                  eval/ragas/input/               eval/ragas/input/
+                               pure-rag-eval-dataset.jsonl     ragas-eval-dataset.jsonl
+                                        │                              │
+                                        ▼                              ▼
+                               evaluate.py --mode pure-rag     evaluate.py --mode agent
+                               Context Precision/Recall         原有四指标
+                               Faithfulness / Answer Relevancy
+                               Factual Correctness
+                               no-result 拒答 rubric
 ```
 
 ## 一次性准备
@@ -26,17 +26,7 @@ python -m venv eval/ragas/.venv
 eval/ragas/.venv/Scripts/python -m pip install -r eval/ragas/requirements.txt
 ```
 
-## 运行步骤
-
-### 1. 生成 Java 侧评估数据（真实 Agent，产生 LLM 成本）
-
-```powershell
-mvn verify -P rag-eval -Drag.eval.required=true -Dragas.export=true
-```
-
-输出 `eval/ragas/input/ragas-eval-dataset.jsonl`（+ `.meta.json` 运行元数据）。
-
-### 2. 配置 Judge 环境变量
+Judge 与业务生成模型分开配置。复制 `.env.example` 为 `.env`（不提交）：
 
 ```powershell
 $env:RAGAS_JUDGE_API_KEY="..."
@@ -47,38 +37,42 @@ $env:RAGAS_EMBEDDING_MODEL="..."
 $env:RAGAS_EMBEDDING_BASE_URL="..."
 ```
 
-也可以复制 `.env.example` 为 `.env` 填写（`.env` 不提交）。
-完整变量说明见 `.env.example`。
+导出 Pure RAG / Agent 数据还需要业务模型密钥 `VOLCENGINE_API_KEY`（或 `ARK_API_KEY`），以及本机 PostgreSQL、MinIO。评估使用独立的 `rag_eval` schema 和 `superbiz-rag-eval` bucket。
 
-### 3. 运行评估
+## Pure RAG
+
+Gold 在 `src/test/resources/retrieval/ragas-dataset.jsonl`：`user_input`、`reference`、`reference_contexts`、`reference_context_ids`。`reference_context_ids` 使用 `文件名#章节`，不使用入库后的 chunk UUID。
 
 ```powershell
-eval/ragas/.venv/Scripts/python eval/ragas/evaluate.py `
-  --input eval/ragas/input/ragas-eval-dataset.jsonl `
-  --output eval/ragas/output/ragas-eval-result.json `
-  --report docs/ragas-eval-report.md
+mvn verify -P rag-eval -Dpure.rag.export=true -Dpure.rag.ids=cpu-001
 ```
 
-## 数据协议
+确认单条成功后再去掉 `-Dpure.rag.ids` 跑完全部 48 条。输出：
 
-每行 JSONL 一个 case，核心字段：`user_input` / `retrieved_contexts` / `response` / `reference`；
-项目自有字段：`id` / `retrieved_context_ids` / `no_result` / `metadata`（排查回归用）。
-`retrieved_contexts` 是 **Agent 实际看到**的工具结果，不是 Python 侧二次检索。
+```text
+eval/ragas/input/pure-rag-eval-dataset.jsonl
+eval/ragas/input/pure-rag-eval-dataset.meta.json
+```
 
-## 分组报告
+然后：
 
-指标按 `answerable` / `no-result` / `all` 三组汇总；no-result case 不与
-普通 Context Recall 直接混平均，避免指标失真。失败 case 单列，不计入平均值。
+```powershell
+eval/ragas/.venv/Scripts/python eval/ragas/evaluate.py --mode pure-rag
+```
 
-## 版本与可重复性
+默认报告写到 `docs/pure-rag-eval-report.md`。这条链路每条 query 只调用一次 `HybridRetrievalService.search`，生成器不注册工具。
 
-- `requirements.in`：直接依赖。
-- `requirements.txt`：实际验证过的锁定版本（`pip freeze` 全量），升级 Ragas
-  需单独跑一轮 eval 确认，不随意漂移。
-- 报告记录 Judge model / embedding model / 数据集 case 数 / 每组指标。
+`abstention` 只用于 `no_result=true` 的样本，分数是 1 到 5，不和 Context Recall 一起平均。带 `error` 或空 `response` 的样本不进入任何平均。
+
+## Agent Eval
+
+保留原导出器，评的是完整 Agent，不是 Pure RAG。
+
+```powershell
+mvn verify -P rag-eval -Dragas.export=true
+eval/ragas/.venv/Scripts/python eval/ragas/evaluate.py --mode agent
+```
 
 ## 安全
 
-- Judge API 是数据出站点：确认内部文档内容允许发送给该 provider 再运行。
-- API key 只走环境变量 / `.env`，不进入 git，不写死在脚本里。
-- JSONL 不得包含密码、连接串、API key。
+Judge 会把检索片段和回答发给配置的模型服务。API key 只放环境变量或 `eval/ragas/.env`。

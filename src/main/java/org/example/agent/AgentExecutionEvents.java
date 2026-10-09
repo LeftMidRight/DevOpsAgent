@@ -9,7 +9,7 @@ public interface AgentExecutionEvents {
     AgentExecutionEvents NOOP = new AgentExecutionEvents() {
     };
 
-    /** 执行进度，例如"正在调用工具 queryPrometheusAlerts" */
+    /** 执行进度，例如"正在调用工具 queryServiceHealth" */
     default void onProgress(String message) {
     }
 

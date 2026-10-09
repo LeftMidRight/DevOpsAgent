@@ -1,9 +1,11 @@
 package org.example.controller;
 
 import lombok.RequiredArgsConstructor;
+import org.example.dto.DocumentChunkView;
+import org.example.dto.KnowledgeDocumentPreview;
 import org.example.dto.KnowledgeDocumentSummary;
 import org.example.dto.Result;
-import org.example.service.DocumentChunkingService;
+import org.example.service.DocumentIngestionService;
 import org.example.service.DocumentUploadService;
 import org.example.service.KnowledgeBaseService;
 import org.springframework.http.ResponseEntity;
@@ -28,7 +30,7 @@ public class KnowledgeBaseController {
 
     private final DocumentUploadService documentUploadService;
     private final KnowledgeBaseService knowledgeBaseService;
-    private final DocumentChunkingService documentChunkingService;
+    private final DocumentIngestionService documentIngestionService;
 
     @PostMapping(value = "/documents", consumes = "multipart/form-data")
     public ResponseEntity<Result<KnowledgeDocumentSummary>> upload(@RequestParam("file") MultipartFile file) {
@@ -40,6 +42,16 @@ public class KnowledgeBaseController {
         return ResponseEntity.ok(Result.ok(knowledgeBaseService.listDocuments()));
     }
 
+    @GetMapping("/documents/{id}")
+    public ResponseEntity<Result<KnowledgeDocumentPreview>> preview(@PathVariable("id") String id) {
+        return ResponseEntity.ok(Result.ok(knowledgeBaseService.preview(id)));
+    }
+
+    @GetMapping("/documents/{id}/chunks")
+    public ResponseEntity<Result<List<DocumentChunkView>>> chunks(@PathVariable("id") String id) {
+        return ResponseEntity.ok(Result.ok(knowledgeBaseService.listChunks(id)));
+    }
+
     @DeleteMapping("/documents")
     public ResponseEntity<Result<Void>> deleteDocument(@RequestParam("id") String id) {
         knowledgeBaseService.deleteDocument(id);
@@ -48,6 +60,6 @@ public class KnowledgeBaseController {
 
     @PostMapping("/documents/{id}/chunk")
     public ResponseEntity<Result<KnowledgeDocumentSummary>> chunkDocument(@PathVariable("id") String id) {
-        return ResponseEntity.ok(Result.ok(documentChunkingService.chunkDocument(id)));
+        return ResponseEntity.ok(Result.ok(documentIngestionService.ingest(id)));
     }
 }

@@ -8,6 +8,7 @@ public record ChunkRecord(
         String fileName,
         String title,
         String content,
+        String retrievalText,
         List<String> tokens,
         List<Float> embedding,
         int chunkIndex,

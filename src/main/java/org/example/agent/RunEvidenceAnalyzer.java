@@ -69,10 +69,10 @@ public final class RunEvidenceAnalyzer {
         JsonNode status = root.get("status");
         if (status != null && status.isTextual()) {
             String value = status.asText().toLowerCase();
-            if (value.equals("error") || value.equals("failed")) {
+            if (value.equals("error") || value.equals("failed") || value.equals("query_error")) {
                 return EvidenceStatus.ERROR;
             }
-            if (value.equals("no_results") || value.equals("empty")) {
+            if (value.equals("no_results") || value.equals("empty") || value.equals("no_data")) {
                 return EvidenceStatus.EMPTY;
             }
         }

@@ -8,14 +8,14 @@ import java.time.Duration;
 public class MinerUProperties {
 
     private boolean enabled;
-    private String baseUrl = "";
-    private String apiKey = "";
-    private String tier = "standard";
-    private String outputFormat = "structured_content";
+    private String baseUrl = "https://mineru.net";
+    private String language = "ch";
+    private boolean enableTable = true;
+    private boolean ocr;
+    private boolean enableFormula = true;
     private Duration connectTimeout = Duration.ofSeconds(5);
     private Duration readTimeout = Duration.ofSeconds(30);
-    private Duration transferTimeout = Duration.ofSeconds(300);
-    private Duration pollInterval = Duration.ofSeconds(1);
+    private Duration pollInterval = Duration.ofSeconds(2);
     private Duration maxPollDuration = Duration.ofSeconds(300);
 
     public boolean isEnabled() {
@@ -34,28 +34,36 @@ public class MinerUProperties {
         this.baseUrl = baseUrl;
     }
 
-    public String getApiKey() {
-        return apiKey;
+    public String getLanguage() {
+        return language;
     }
 
-    public void setApiKey(String apiKey) {
-        this.apiKey = apiKey;
+    public void setLanguage(String language) {
+        this.language = language;
     }
 
-    public String getTier() {
-        return tier;
+    public boolean isEnableTable() {
+        return enableTable;
     }
 
-    public void setTier(String tier) {
-        this.tier = tier;
+    public void setEnableTable(boolean enableTable) {
+        this.enableTable = enableTable;
     }
 
-    public String getOutputFormat() {
-        return outputFormat;
+    public boolean isOcr() {
+        return ocr;
     }
 
-    public void setOutputFormat(String outputFormat) {
-        this.outputFormat = outputFormat;
+    public void setOcr(boolean ocr) {
+        this.ocr = ocr;
+    }
+
+    public boolean isEnableFormula() {
+        return enableFormula;
+    }
+
+    public void setEnableFormula(boolean enableFormula) {
+        this.enableFormula = enableFormula;
     }
 
     public Duration getConnectTimeout() {
@@ -72,14 +80,6 @@ public class MinerUProperties {
 
     public void setReadTimeout(Duration readTimeout) {
         this.readTimeout = readTimeout;
-    }
-
-    public Duration getTransferTimeout() {
-        return transferTimeout;
-    }
-
-    public void setTransferTimeout(Duration transferTimeout) {
-        this.transferTimeout = transferTimeout;
     }
 
     public Duration getPollInterval() {

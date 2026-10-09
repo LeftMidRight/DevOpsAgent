@@ -7,8 +7,8 @@ public final class DocumentExtensionSupport {
 
     private static final Set<String> PLAIN_TEXT = Set.of("txt", "md", "markdown");
     private static final Set<String> MINERU = Set.of(
-            "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx",
-            "png", "jpg", "jpeg", "webp", "tiff");
+            "pdf", "doc", "docx", "ppt", "pptx", "xlsx",
+            "png", "jpg", "jpeg", "webp");
 
     private DocumentExtensionSupport() {}
 
@@ -52,12 +52,10 @@ public final class DocumentExtensionSupport {
             case "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
             case "ppt" -> "application/vnd.ms-powerpoint";
             case "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-            case "xls" -> "application/vnd.ms-excel";
             case "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
             case "png" -> "image/png";
             case "jpg", "jpeg" -> "image/jpeg";
             case "webp" -> "image/webp";
-            case "tiff" -> "image/tiff";
             default -> "application/octet-stream";
         };
     }

@@ -63,6 +63,11 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!-- Micrometer → OpenTelemetry → OTLP。Langfuse 只接收 Trace，不参与 Agent 执行。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
@@ -194,6 +199,8 @@
                             <systemPropertyVariables>
                                 <rag.eval.required>true</rag.eval.required>
                                 <ragas.export>${ragas.export:false}</ragas.export>
+                                <pure.rag.export>${pure.rag.export:false}</pure.rag.export>
+                                <pure.rag.ids>${pure.rag.ids:}</pure.rag.ids>
                             </systemPropertyVariables>
                         </configuration>
                     </plugin>

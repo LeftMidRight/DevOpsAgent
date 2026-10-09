@@ -1,18 +1,10 @@
 package org.example.agent;
 
-import io.micrometer.observation.ObservationRegistry;
-import org.example.context.ContextAssembler;
-import org.example.context.ContextPackage;
-import org.example.context.ContextProperties;
-import org.example.context.TokenEstimator;
-import org.example.conversation.ConversationExecutionCoordinator;
-import org.example.conversation.ConversationService;
-import org.example.conversation.ConversationTurn;
+import org.example.conversation.RuntimeConversationState;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -20,24 +12,20 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.definition.ToolDefinition;
 import reactor.core.publisher.Flux;
 
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class AgentExecutionServiceTest {
@@ -58,10 +46,7 @@ class AgentExecutionServiceTest {
             }
             AgentProperties props = new AgentProperties();
             props.getBudget().setMaxModelCalls(2);
-            ConversationService conversations = mockConversations();
-            when(conversations.beginTurn(anyString(), anyString())).thenReturn(
-                    new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID()));
-            AgentExecutionResult result = newService(model, props, conversations).execute(
+            AgentExecutionResult result = AgentExecutionHarness.create(model, props).service.execute(
                     new AgentExecutionService.AgentExecutionRequest(
                             "probe-session", "check", streaming, AgentExecutionEvents.NOOP));
             assertEquals(2, rounds.get());
@@ -75,9 +60,6 @@ class AgentExecutionServiceTest {
         when(model.stream(any(Prompt.class))).thenReturn(Flux.just(
                 new ChatResponse(List.of(new Generation(new AssistantMessage("FIRST")))),
                 new ChatResponse(List.of(new Generation(new AssistantMessage("LATE"))))));
-        ConversationService conversations = mockConversations();
-        ConversationTurn turn = new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID());
-        when(conversations.beginTurn(anyString(), anyString())).thenReturn(turn);
         RunCancellation cancellation = new RunCancellation();
         List<String> emitted = new ArrayList<>();
         AgentExecutionEvents events = new AgentExecutionEvents() {
@@ -87,14 +69,16 @@ class AgentExecutionServiceTest {
                 cancellation.cancel();
             }
         };
-        AgentExecutionService service = newService(model, new AgentProperties(), conversations);
-        BudgetExceededException error = assertThrows(BudgetExceededException.class, () -> service.execute(
+        AgentExecutionHarness harness = AgentExecutionHarness.create(model, new AgentProperties());
+        BudgetExceededException error = assertThrows(BudgetExceededException.class, () -> harness.service.execute(
                 new AgentExecutionService.AgentExecutionRequest(
                         "probe-session", "check", true, events, cancellation)));
         assertEquals(BudgetExceededException.Kind.CANCELLED, error.kind());
         assertEquals(List.of("FIRST"), emitted);
-        verify(conversations, never()).completeTurn(any(), anyString());
-        verify(conversations).failTurn(turn);
+        assertTrue(harness.history.commits("probe-session").isEmpty());
+        RuntimeConversationState state = harness.store.get("probe-session").orElseThrow();
+        assertTrue(state.messages().isEmpty());
+        assertTrue(state.workingState().isEmpty());
     }
 
     @Test
@@ -127,15 +111,16 @@ class AgentExecutionServiceTest {
                 AgentProperties props = new AgentProperties();
                 props.getBudget().setMaxCallsPerTool(totalLimit ? 6 : 2);
                 props.getBudget().setMaxToolCalls(totalLimit ? 1 : 20);
-                ConversationService conversations = mockConversations();
-                when(conversations.beginTurn(anyString(), anyString())).thenAnswer(invocation ->
-                        new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID()));
                 AtomicInteger toolCalls = new AtomicInteger();
-                AgentExecutionService service = newService(model, props, conversations, toolCalls);
+                AgentExecutionHarness harness = AgentExecutionHarness.create(
+                        model, props, toolCalls, new org.example.conversation.InMemoryConversationHistory(),
+                        new org.example.conversation.InMemoryRuntimeConversationStore(),
+                        "{\"success\":true,\"service\":\"probe\"}");
 
                 for (int request = 0; request < 2; request++) {
-                    AgentExecutionResult result = service.execute(new AgentExecutionService.AgentExecutionRequest(
-                            "probe-session", "check", streaming, AgentExecutionEvents.NOOP));
+                    AgentExecutionResult result = harness.service.execute(
+                            new AgentExecutionService.AgentExecutionRequest(
+                                    "probe-session", "check", streaming, AgentExecutionEvents.NOOP));
                     assertEquals("FINAL", result.answer());
                     assertEquals((request + 1) * (totalLimit ? 1 : 2), toolCalls.get());
                 }
@@ -160,16 +145,16 @@ class AgentExecutionServiceTest {
             return Flux.just(new ChatResponse(List.of(new Generation(message))));
         });
 
-        ConversationService conversations = mockConversations();
-        ConversationTurn turn = new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID());
-        when(conversations.beginTurn(anyString(), anyString())).thenReturn(turn);
-        AgentExecutionService service = newService(model, new AgentProperties(), conversations);
-
-        AgentExecutionResult result = service.execute(new AgentExecutionService.AgentExecutionRequest(
+        AgentExecutionHarness harness = AgentExecutionHarness.create(model, new AgentProperties());
+        AgentExecutionResult result = harness.service.execute(new AgentExecutionService.AgentExecutionRequest(
                 "probe-session", "check service", true, AgentExecutionEvents.NOOP));
 
         assertEquals("FINAL", result.answer());
-        verify(conversations).completeTurn(turn, "FINAL");
+        assertEquals("FINAL", harness.history.commits("probe-session").get(0).assistantContent());
+        List<org.springframework.ai.chat.messages.Message> messages =
+                harness.store.get("probe-session").orElseThrow().messages();
+        assertEquals(List.of("check service", "FINAL"), messages.stream().map(message -> message.getText()).toList());
+        assertFalse(((AssistantMessage) messages.get(1)).hasToolCalls());
         assertEquals(2, rounds.get());
     }
 
@@ -187,9 +172,6 @@ class AgentExecutionServiceTest {
                 }),
                 Flux.just(new ChatResponse(List.of(), ChatResponseMetadata.builder()
                         .usage(new DefaultUsage(10, 5, 15)).build()))));
-        ConversationService conversations = mockConversations();
-        ConversationTurn turn = new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID());
-        when(conversations.beginTurn(anyString(), anyString())).thenReturn(turn);
         AgentExecutionEvents events = new AgentExecutionEvents() {
             @Override
             public void onContentDelta(String chunk) {
@@ -197,13 +179,14 @@ class AgentExecutionServiceTest {
             }
         };
 
-        AgentExecutionResult result = newService(model, new AgentProperties(), conversations).execute(
+        AgentExecutionHarness harness = AgentExecutionHarness.create(model, new AgentProperties());
+        AgentExecutionResult result = harness.service.execute(
                 new AgentExecutionService.AgentExecutionRequest("probe-session", "check", true, events));
 
         assertEquals(List.of("FI", "NAL"), emitted);
         assertEquals("FINAL", result.answer());
         assertEquals("think done", result.reasoning());
-        verify(conversations).completeTurn(turn, "FINAL");
+        assertEquals("FINAL", harness.history.commits("probe-session").get(0).assistantContent());
     }
 
     @Test
@@ -216,82 +199,12 @@ class AgentExecutionServiceTest {
 
         AgentProperties props = new AgentProperties();
         props.getBudget().setMaxDurationSeconds(1);
-        ConversationService conversations = mockConversations();
-        ConversationTurn turn = new ConversationTurn("probe-session", UUID.randomUUID(), UUID.randomUUID());
-        when(conversations.beginTurn(anyString(), anyString())).thenReturn(turn);
-        AgentExecutionService service = newService(model, props, conversations);
+        AgentExecutionHarness harness = AgentExecutionHarness.create(model, props);
 
-        assertThrows(BudgetExceededException.class, () -> service.execute(
+        assertThrows(BudgetExceededException.class, () -> harness.service.execute(
                 new AgentExecutionService.AgentExecutionRequest(
                         "probe-session", "slow check", false, AgentExecutionEvents.NOOP)));
-        verify(conversations, never()).completeTurn(any(), anyString());
-        verify(conversations).failTurn(turn);
-    }
-
-    private static ConversationService mockConversations() {
-        ConversationService conversations = mock(ConversationService.class);
-        when(conversations.resolveConversationId(any())).thenReturn("probe-session");
-        return conversations;
-    }
-
-    private static AgentExecutionService newService(
-            ChatModel model,
-            AgentProperties props,
-            ConversationService conversations) {
-        return newService(model, props, conversations, new AtomicInteger());
-    }
-
-    private static AgentExecutionService newService(
-            ChatModel model,
-            AgentProperties props,
-            ConversationService conversations,
-            AtomicInteger toolCalls) {
-        when(model.getOptions()).thenReturn(OpenAiChatOptions.builder().model("offline-probe").build());
-        ContextAssembler assembler = mock(ContextAssembler.class);
-        when(assembler.assemble(anyString(), any(), any())).thenReturn(
-                new ContextPackage(List.of(new UserMessage("check service")), 10, 1, 0));
-        UnifiedAgentFactory factory = new UnifiedAgentFactory(props, null, null, null, null, null, null,
-                ObservationRegistry.NOOP, io.micrometer.core.instrument.Metrics.globalRegistry) {
-            @Override
-            public ChatModel createChatModel(AgentTaskPolicy policy) {
-                return model;
-            }
-
-            @Override
-            public PreparedAgent createAgent(
-                    AgentTaskPolicy policy,
-                    ChatModel chatModel,
-                    AgentRunContext run) {
-                ToolCallback tool = new ToolCallback() {
-                    @Override
-                    public ToolDefinition getToolDefinition() {
-                        return ToolDefinition.builder().name("probeTool").description("offline probe")
-                                .inputSchema("{\"type\":\"object\",\"properties\":{}}").build();
-                    }
-
-                    @Override
-                    public String call(String input) {
-                        toolCalls.incrementAndGet();
-                        return "{\"success\":true,\"service\":\"probe\"}";
-                    }
-                };
-                return new PreparedAgent(
-                        chatModel,
-                        policy.systemPrompt(),
-                        OpenAiChatOptions.builder()
-                                .model("offline-probe")
-                                .toolCallbacks(List.of(new EvidenceCollectingToolCallback(tool, run, "local")))
-                                .build());
-            }
-        };
-        return new AgentExecutionService(
-                conversations,
-                new ConversationExecutionCoordinator(),
-                assembler,
-                factory,
-                props,
-                new ContextProperties(),
-                new TokenEstimator(),
-                ObservationRegistry.NOOP);
+        assertTrue(harness.history.commits("probe-session").isEmpty());
+        assertTrue(harness.store.get("probe-session").orElseThrow().workingState().isEmpty());
     }
 }

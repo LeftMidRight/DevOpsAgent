@@ -3,6 +3,7 @@ package org.example.retrieval;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -14,49 +15,55 @@ public class Bm25Index {
     private static final double K1 = 1.2;
     private static final double B = 0.75;
 
-    private final List<Bm25Document> docs;
-    private final Map<String, Integer> df = new HashMap<>();
-    private final double avgdl;
-    private final int n;
+    private Bm25Index() {}
 
-    public Bm25Index(List<Bm25Document> docs) {
-        this.docs = List.copyOf(docs);
-        this.n = docs.size();
-        double lenSum = 0;
-        for (Bm25Document d : docs) {
-            lenSum += d.tokens().size();
-            d.tokens().stream().distinct().forEach(t -> df.merge(t, 1, Integer::sum));
-        }
-        this.avgdl = n == 0 ? 0 : lenSum / n;
-    }
-
-    public List<ScoredId> score(List<String> queryTokens, int topN) {
-        if (n == 0 || queryTokens == null || queryTokens.isEmpty() || topN <= 0) {
+    public static List<ScoredId> score(
+            List<Bm25Document> candidates,
+            List<String> queryTokens,
+            Bm25CorpusStats stats,
+            int topN) {
+        if (candidates == null || candidates.isEmpty() || stats == null || stats.documentCount() <= 0
+                || queryTokens == null || queryTokens.isEmpty() || topN <= 0) {
             return List.of();
         }
+        List<String> terms = new ArrayList<>(new LinkedHashSet<>(queryTokens));
+        double avgdl = Math.max(stats.averageDocumentLength(), 1e-9);
+        long n = stats.documentCount();
         List<ScoredId> scored = new ArrayList<>();
-        for (Bm25Document d : docs) {
-            double s = 0;
-            Map<String, Integer> tf = new HashMap<>();
-            for (String t : d.tokens()) {
-                tf.merge(t, 1, Integer::sum);
-            }
-            int dl = Math.max(d.tokens().size(), 1);
-            for (String q : queryTokens) {
-                int f = tf.getOrDefault(q, 0);
-                if (f == 0) {
-                    continue;
-                }
-                int dft = df.getOrDefault(q, 0);
-                double idf = Math.log(1.0 + (n - dft + 0.5) / (dft + 0.5));
-                double denom = f + K1 * (1 - B + B * dl / Math.max(avgdl, 1e-9));
-                s += idf * f * (K1 + 1) / denom;
-            }
-            if (s > 0) {
-                scored.add(new ScoredId(d.id(), s));
+        for (Bm25Document document : candidates) {
+            double score = scoreDocument(document, terms, stats, n, avgdl);
+            if (score > 0) {
+                scored.add(new ScoredId(document.id(), score));
             }
         }
-        scored.sort(Comparator.comparingDouble(ScoredId::score).reversed());
+        scored.sort(Comparator.comparingDouble(ScoredId::score).reversed()
+                .thenComparing(ScoredId::id));
         return scored.subList(0, Math.min(topN, scored.size()));
+    }
+
+    private static double scoreDocument(
+            Bm25Document document,
+            List<String> terms,
+            Bm25CorpusStats stats,
+            long n,
+            double avgdl) {
+        Map<String, Integer> tf = new HashMap<>();
+        List<String> tokens = document.tokens() == null ? List.of() : document.tokens();
+        for (String token : tokens) {
+            tf.merge(token, 1, Integer::sum);
+        }
+        int dl = Math.max(tokens.size(), 1);
+        double score = 0;
+        for (String term : terms) {
+            int frequency = tf.getOrDefault(term, 0);
+            if (frequency == 0) {
+                continue;
+            }
+            long df = stats.documentFrequency(term);
+            double idf = Math.log(1.0 + (n - df + 0.5) / (df + 0.5));
+            double denominator = frequency + K1 * (1 - B + B * dl / avgdl);
+            score += idf * frequency * (K1 + 1) / denominator;
+        }
+        return score;
     }
 }
